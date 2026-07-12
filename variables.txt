@@ -1,0 +1,199 @@
+JRunGTAP — Variable Reference
+═══════════════════════════════════════════════════════════════════════════════
+All variables are expressed as percentage changes (% change) from benchmark.
+Index dimensions are shown in parentheses: T=traded commodities, E=endowments,
+P=production sectors (T ∪ CGDS), M=transport margins, R=regions,
+NS=non-savings commodities (T ∪ endowments).
+
+In the standard short-run closure all ENDOGENOUS variables are determined by
+the model; all EXOGENOUS variables are set by the user (shocks). A closure swap
+moves one variable from each list, keeping the system square.
+
+───────────────────────────────────────────────────────────────────────────────
+ENDOGENOUS VARIABLES  (determined by the model)
+───────────────────────────────────────────────────────────────────────────────
+
+── Government demand ──────────────────────────────────────────────────────────
+pgov          (R)       government expenditure price index
+pgd           (T,R)     price of domestic good for government
+pgm           (T,R)     price of imported good for government
+pg            (T,R)     composite government purchase price
+ug            (R)       utility from government consumption
+yg            (R)       government income / budget
+qg            (T,R)     quantity of composite government purchase
+qgd           (T,R)     quantity of domestic good for government
+qgm           (T,R)     quantity of imported good for government
+
+── Private (household) demand ────────────────────────────────────────────────
+ppriv         (R)       private expenditure price index (CPI)
+ppd           (T,R)     price of domestic good for private consumption
+ppm           (T,R)     price of imported good for private consumption
+pp            (T,R)     composite private purchase price
+up            (R)       private utility (CDE sub-utility)
+yp            (R)       private household income available for spending
+uepriv        (R)       CDE sub-utility shift used in EV computation (internal)
+qp            (T,R)     quantity of composite private purchase
+qpd           (T,R)     quantity of domestic good for private consumption
+qpm           (T,R)     quantity of imported good for private consumption
+pim           (T,R)     price of import composite (Armington)
+qim           (T,R)     quantity of import composite (Armington)
+atpd          (T,R)     taste/preference shift — domestic private
+atpm          (T,R)     taste/preference shift — imported private
+
+── Production / firms ────────────────────────────────────────────────────────
+pva           (P,R)     value-added price (composite factor price)
+qva           (P,R)     quantity of value added
+pf            (T,P,R)   composite intermediate input price
+qf            (T,P,R)   composite intermediate input demand
+pfd           (T,P,R)   price of domestic intermediate input
+qfd           (T,P,R)   quantity of domestic intermediate input
+pfm           (T,P,R)   price of imported intermediate input
+qfm           (T,P,R)   quantity of imported intermediate input
+pfe           (E,P,R)   price of factor E paid by sector P in region R
+qfe           (E,P,R)   quantity of factor E used by sector P in region R
+qo_prod_cgds  (P,R)     output quantity (production + investment sectors)
+qds           (T,R)     domestic supply absorbed domestically
+pmes_slug     (ES,P,R)  supply price of sluggish endowment ES in sector P
+qoes_slug     (ES,P,R)  quantity of sluggish endowment ES in sector P
+ps            (NS,R)    supply price of non-savings commodity (factor or good)
+
+── Investment / capital ──────────────────────────────────────────────────────
+rental        (R)       economy-wide rental rate (current-period capital)
+kb            (R)       beginning-of-period capital stock
+ke            (R)       end-of-period capital stock
+rorc          (R)       current rate of return on capital
+rore          (R)       expected rate of return on capital
+ksvces        (R)       capital services (depreciation-adjusted flow)
+qcgds         (R)       quantity of capital goods (investment)
+pcgds         (R)       price of capital goods
+pcgdswld      (1)       world price of capital goods
+globalcgds    (1)       global investment quantity index
+rorg          (1)       global expected rate of return on capital
+EXPAND        (EC,R)    expansion factor for sluggish endowments
+psave         (R)       price of regional savings
+qsave         (R)       quantity of regional savings
+
+── Trade ─────────────────────────────────────────────────────────────────────
+pfob          (T,R,R)   f.o.b. export price (commodity, origin, destination)
+pcif          (T,R,R)   c.i.f. import price (commodity, origin, destination)
+pms           (T,R,R)   market price of import (commodity, origin, destination)
+pr            (T,R)     price received by domestic producers
+qxs           (T,R,R)   bilateral export/import quantity (origin→destination)
+
+── Transport margins ──────────────────────────────────────────────────────────
+qtmfsd        (M,T,R,R) quantity of margin M used in shipping T from R to R
+qtm           (M)       total quantity of margin service M
+pt            (M)       price of margin service M
+ptrans        (T,R,R)   composite transport price for route (T, origin, dest)
+qst           (M,R)     supply of margin service M by region R
+
+── Regional household / welfare ──────────────────────────────────────────────
+pm            (NS,R)    market price of non-savings commodity
+fincome       (R)       factor income (payments to endowments)
+dpav          (R)       average expenditure distortion (CDE parameter shift)
+uelas         (R)       expenditure elasticity of utility
+dpsum         (R)       sum of distribution-parameter shifts (CDE)
+y             (R)       regional household income (% change)
+p             (R)       regional price index / CPI
+u             (R)       regional welfare / utility (% change)
+
+── Post-processed welfare measure (not a model variable) ─────────────────────
+EV_mn_USD     (R)       equivalent variation in million USD at benchmark prices
+                         computed as  EV[r] = INCOME[r] × u[r] / 100
+                         (exact for Johansen; good approximation for Euler/Gragg)
+                         Reported in the on-screen welfare table and in the CSV.
+
+── Equilibrium / Walras ──────────────────────────────────────────────────────
+walras_sup    (1)       global savings supply (Walras law check)
+walras_dem    (1)       global investment demand (Walras law check)
+
+───────────────────────────────────────────────────────────────────────────────
+EXOGENOUS VARIABLES  (set by user; shocked to run policy experiments)
+───────────────────────────────────────────────────────────────────────────────
+
+── Technology shocks ──────────────────────────────────────────────────────────
+ao            (P,R)     output-augmenting technical change in sector P
+ava           (P,R)     value-added-augmenting technical change in sector P
+af            (T,P,R)   intermediate-input-augmenting tech change (good T, sector P)
+afe           (E,P,R)   factor-augmenting tech change (factor E, sector P)
+ams           (T,R,R)   import-augmenting tech (Armington quality shift, T, origin, dest)
+atmfsd        (M,T,R,R) transport efficiency of margin M for good T on route R→R
+
+── Output and factor taxes ────────────────────────────────────────────────────
+to            (NS,R)    ad valorem output / endowment tax rate
+
+── Government expenditure taxes ──────────────────────────────────────────────
+tgd           (T,R)     tax on domestic good purchased by government
+tgm           (T,R)     tax on imported good purchased by government
+
+── Intermediate input taxes ──────────────────────────────────────────────────
+tfd           (T,P,R)   tax on domestic intermediate input T used in sector P
+tfm           (T,P,R)   tax on imported intermediate input T used in sector P
+
+── Factor taxes ───────────────────────────────────────────────────────────────
+tf            (E,P,R)   ad valorem tax on use of factor E in sector P
+
+── Export taxes / subsidies ───────────────────────────────────────────────────
+tx            (T,R)     ad valorem export tax (uniform across destinations)
+txs           (T,R,R)   ad valorem export tax (source-specific: T, origin, dest)
+
+── Import tariffs ────────────────────────────────────────────────────────────
+tm            (T,R)     ad valorem import tariff (uniform across origins)
+tms           (T,R,R)   ad valorem import tariff (source-specific: T, origin, dest)
+
+── Private consumption taxes ──────────────────────────────────────────────────
+tpd           (T,R)     tax on domestic good purchased by households
+tpm           (T,R)     tax on imported good purchased by households
+tp            (R)       uniform private consumption tax (all goods, region R)
+
+── Demand / preference shocks ────────────────────────────────────────────────
+pop           (R)       population growth (scales private demand)
+dppriv        (R)       shift in private demand distribution (CDE)
+dpgov         (R)       shift in government spending
+dpsave        (R)       shift in savings propensity
+au            (R)       utility/preference shift (direct welfare shock)
+
+── Endowment supplies ────────────────────────────────────────────────────────
+qo_endw       (E,R)     aggregate supply of factor E in region R
+                         (exogenous in short-run; swap with rental for long-run)
+
+── Numeraire ─────────────────────────────────────────────────────────────────
+pfactwld      (1)       world factor price index — the model numeraire (fixed = 0)
+
+── Closure slack variables (normally zero; do not shock) ─────────────────────
+psaveslack    (R)       savings price slack (relaxes savings market)
+cgdslack      (R)       investment quantity slack (relaxes investment identity)
+endwslack     (E,R)     endowment market slack (relaxes factor market clearing)
+profitslack   (P,R)     zero-profit slack (relaxes goods market clearing)
+walraslack    (1)       global savings-investment slack (Walras residual)
+incomeslack   (R)       regional income identity slack
+
+───────────────────────────────────────────────────────────────────────────────
+COMMON CLOSURE SWAPS
+───────────────────────────────────────────────────────────────────────────────
+The standard short-run closure fixes all factor supplies (qo_endw) and lets
+the rental rate (rental) be determined endogenously. The most common swaps:
+
+Long-run (mobile capital, fixed rate of return):
+  swap  rental[R]  <->  qo_endw[Capital, R]    for each region R
+  (capital stock adjusts to equate the rate of return across regions)
+
+Fixed real wages (labour market targeting):
+  swap  rental[R]  <->  qo_endw[UnSkLab, R]
+  swap  rental[R]  <->  qo_endw[SkLab, R]
+
+Endogenous tariff (fixing import volume):
+  swap  tm[T, R]   <->  qxs[T, origin, R]       for specific (T, origin)
+
+Endogenous export tax (fixing trade balance):
+  swap  tx[T, R]   <->  qxs[T, R, destination]
+
+───────────────────────────────────────────────────────────────────────────────
+NOTES
+───────────────────────────────────────────────────────────────────────────────
+• Variable names in cfg files are case-insensitive (tm = TM = Tm).
+• Index names must match the labels in your GTAPAgg3 aggregation
+  (run load_data() and inspect the printed set names).
+• "all" or "*" may be used as a wildcard index: tm[all, Austria] = 10.0
+• Model-set names (TRAD_COMM, REG, ENDW_COMM, …) may be used as indices.
+• User-defined sets can be declared inline: set agri = [pdr, wht, gro]

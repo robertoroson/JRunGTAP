@@ -307,9 +307,13 @@ function run_gtap_v7(exp::GTAPExperiment, zippath::String; rebuild_jacobian = fa
     exog = NamedTuple(k => (k in scalars ? exog_dict[k][1] : exog_dict[k])
                       for k in keys(make_exog_zero_v7(s)))
 
-    b = -F_core_v7(zeros(n_endog_v7(s)), exog, d, s, C)
+    n = n_endog_v7(s)
+    b = -F_core_v7(zeros(n), exog, d, s, C)
+    # Trim Walras redundancy: drop last row so system is square (n×n)
+    A_sq = size(A,1) > n ? A[1:n,:] : A
+    b_sq = length(b)  > n ? b[1:n]  : b
 
-    A_eff, b_eff, swap_in, swap_out = apply_swaps_v7(A, b, exp.swaps, d, s, C)
+    A_eff, b_eff, swap_in, swap_out = apply_swaps_v7(A_sq, b_sq, exp.swaps, d, s, C)
 
     x_endo = if exp.method === :johansen
         _johansen_solve(A_eff, b_eff)
@@ -341,6 +345,8 @@ function _euler_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
 
         A_cur = build_A_v7(d_cur, s, C_cur)
         b_cur = -F_core_v7(zeros(n), exog, d_cur, s, C_cur)
+        # Drop the last row (E_walras) — it's Walras' law redundancy in the square system
+        if size(A_cur, 1) > n; A_cur = A_cur[1:n, :]; b_cur = b_cur[1:n]; end
         A_eff, b_eff, _, _ = apply_swaps_v7(A_cur, b_cur, swaps, d_cur, s, C_cur)
         dx = lu(A_eff) \ b_eff
 
@@ -375,6 +381,7 @@ function _gragg_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
 
         A_cur = build_A_v7(d_cur, s, C_cur)
         b1    = -F_core_v7(zeros(n), exog_sub, d_cur, s, C_cur)
+        if size(A_cur,1) > n; A_cur = A_cur[1:n,:]; b1 = b1[1:n]; end
         A1, b1e, _, _ = apply_swaps_v7(A_cur, b1, swaps, d_cur, s, C_cur)
         k1 = lu(A1) \ b1e
 
@@ -384,6 +391,7 @@ function _gragg_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
 
         A_mid = build_A_v7(d_mid, s, C_mid)
         b2    = -F_core_v7(zeros(n), exog_sub, d_mid, s, C_mid)
+        if size(A_mid,1) > n; A_mid = A_mid[1:n,:]; b2 = b2[1:n]; end
         A2, b2e, _, _ = apply_swaps_v7(A_mid, b2, swaps, d_mid, s, C_mid)
         k2 = lu(A2) \ b2e
 

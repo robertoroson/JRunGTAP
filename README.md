@@ -1,16 +1,17 @@
 # JRunGTAP
 
-A Julia reimplementation of the **GEMPACK/RunGTAP** workflow for the standard **GTAP v6.2** linearised computable general equilibrium (CGE) model.
+A Julia reimplementation of the **GEMPACK/RunGTAP** workflow for the **GTAP CGE model**, supporting both the standard **v6.2** and the extended **v7** model structures.
 
-The model is described in:
+The models are described in:
 - Hertel & Tsigas (1997), "Structure of the Standard GTAP Model", Ch. 2 in Hertel (ed.) *Global Trade Analysis*, Cambridge University Press.
 - McDougall (2003), "A New Regional Household Demand System for GTAP", GTAP Technical Paper No. 20.
+- Corong et al. (2017), "The Standard GTAP Model, Version 7", *Journal of Global Economic Analysis* 2(1), 1–119.
 
 ---
 
 ## Features
 
-- Reads data directly from a **GTAPAgg3** zip archive (`.har` files).
+- Reads data directly from a **GTAPAgg3** zip archive (`.har` files) — both v6.2 and v7 formats.
 - Three solution methods:
   - **Johansen** — single linearisation step (fast; accurate for small shocks).
   - **Euler** — multi-step, rebuilds the Jacobian at each sub-step (1st-order accuracy).
@@ -23,19 +24,36 @@ The model is described in:
 
 ## Repository contents
 
+### Core (both model versions)
+
 | File | Description |
 |---|---|
-| `jrungtap.jl` | Main entry point — load this file in Julia |
-| `gtap_v62.jl` | Sets, data structs, derived coefficients, equation residuals |
-| `gtap_pack.jl` | Pack/unpack the endogenous variable vector; `F_core` residual function |
-| `gtap_analytical.jl` | Analytical sparse Jacobian builder (`build_A_analytical`) |
-| `gtap_solver.jl` | Solution accessor (`get_variable`) |
-| `gtap_euler.jl` | Level-update for multi-step Euler/Gragg integration |
-| `gtap_names.jl` | Name-to-index resolution; config parser |
-| `load_gtapAgg3.jl` | HAR file loader for GTAPAgg3 zip archives |
+| `RunGTAP.jl` | Main entry point — `include` this file in Julia |
+| `gtap_names.jl` | Name-to-index resolution; config file parser |
 | `har_reader.py` | Pure-Python HAR reader (called via PyCall) |
 | `template.cfg` | Template experiment config file with documentation |
-| `variables.txt` | Reference list of all endogenous and exogenous variables |
+| `variables.txt` | Reference list of all endogenous and exogenous variables (v6.2 and v7) |
+
+### GTAP v6.2
+
+| File | Description |
+|---|---|
+| `gtap_v62.jl` | Sets, data structs, derived coefficients, equation residuals |
+| `gtap_pack.jl` | Pack/unpack the endogenous variable vector; `F_core` residual function |
+| `gtap_analytical.jl` | Analytical sparse Jacobian builder |
+| `gtap_solver.jl` | Solution accessor (`get_variable`) |
+| `gtap_euler.jl` | Level-update for multi-step Euler/Gragg integration |
+| `load_gtapAgg3.jl` | HAR file loader for GTAPAgg3 v6.2 zip archives |
+
+### GTAP v7
+
+| File | Description |
+|---|---|
+| `gtap_v7.jl` | Sets, data structs, derived coefficients, equation residuals (v7) |
+| `gtap_pack_v7.jl` | Pack/unpack endogenous vector; `F_core_v7` residual function |
+| `gtap_analytical_v7.jl` | Analytical sparse Jacobian builder for v7 |
+| `gtap_euler_v7.jl` | Level-update for multi-step Euler/Gragg integration (v7) |
+| `load_gtapAgg3_v7.jl` | HAR file loader for GTAPAgg3 v7 zip archives |
 
 ---
 
@@ -72,9 +90,12 @@ Pkg.build("PyCall")
 
 JRunGTAP reads data from a **GTAPAgg3** zip archive. This archive is produced by the GTAPAgg3 aggregation software and must contain:
 
+**v6.2 archives:**
 - `sets.har` — set definitions
 - `basedata.har` — benchmark flow data
 - `default.prm` — elasticity parameters
+
+**v7 archives** contain additional HAR files for the activity-commodity split, factor supply by activity, and CET allocation parameters.
 
 GTAP data are proprietary and distributed separately by the [GTAP Center](https://www.gtap.agecon.purdue.edu/).
 
@@ -83,13 +104,15 @@ GTAP data are proprietary and distributed separately by the [GTAP Center](https:
 ## Quick start
 
 ```julia
-include("jrungtap.jl")
+include("RunGTAP.jl")
 run_gtap_interactive()
 ```
 
 The interactive runner will prompt you for:
 1. The path to your GTAPAgg3 zip file.
 2. The name of an experiment (reads `<name>.cfg`, writes `<name>.csv`).
+
+The model version is selected in the `.cfg` file with `model = v62` (default) or `model = v7`.
 
 ---
 
@@ -98,6 +121,9 @@ The interactive runner will prompt you for:
 Each experiment is described by a plain-text `.cfg` file. Copy and edit `template.cfg`:
 
 ```
+# Model version
+model  = v7           # v62 (default) | v7
+
 # Method and accuracy
 method = euler        # johansen | euler | gragg
 steps  = 10           # number of sub-steps (euler and gragg only)
@@ -106,7 +132,8 @@ steps  = 10           # number of sub-steps (euler and gragg only)
 shock  tm[rice, Japan] = 50.0       # 50 pp tariff on rice imports into Japan
 
 # Closure swaps (optional): endogenous <-> exogenous
-# swap   rental[Japan] <-> qo_endw[Capital, Japan]   # long-run capital
+# swap   rental[Japan] <-> qo_endw[Capital, Japan]   # long-run capital (v6.2)
+# swap   pe[Capital, Japan] <-> qe[Capital, Japan]    # long-run capital (v7)
 
 # User-defined sets (optional)
 # set agri = [rice, wheat, grains]
@@ -118,23 +145,27 @@ Variable names, index conventions, and common closure swaps are documented in `v
 
 ## Programmatic use
 
+### v6.2
+
 ```julia
-include("jrungtap.jl")
+include("RunGTAP.jl")
 
-# Load data
-s, d, C = load_data("mydata.zip")
-
-# Parse a config file
-method, steps, raw_shocks, raw_swaps, user_sets = parse_config("myexp.cfg")
-shocks, swaps = resolve_config(raw_shocks, raw_swaps, user_sets, s)
-
-# Run
-exp = gtap_experiment("mydata.zip"; shocks=shocks, swaps=swaps, method=method, steps=steps)
-sol = run_gtap(exp)
-
-# Inspect and export
+s, d, C = load_data("mydata_v62.zip")
+shocks, swaps = resolve_config(["tm[pdr,Austria]" => 10.0], [], Dict(), s)
+sol = run_gtap(gtap_experiment("tariff"; shocks=shocks, method=:euler, steps=10))
 show_results(sol)
-export_results(sol, "myexp.csv")
+export_results(sol, "tariff.csv")
+```
+
+### v7
+
+```julia
+include("RunGTAP.jl")
+
+s, d, C = load_data_v7("mydata_v7.zip")
+shocks, swaps = resolve_config(["tm[1,1]" => 10.0], [], Dict(), s)
+sol = run_gtap_v7(gtap_experiment("tariff_v7"; shocks=shocks, method=:euler, steps=10),
+                  "mydata_v7.zip")
 ```
 
 ---
@@ -148,6 +179,20 @@ export_results(sol, "myexp.csv")
 | Gragg (modified midpoint) | `gragg` | O(1/N²) | 2 per step |
 
 For small shocks (< 5 pp), Johansen is adequate. For large shocks, Euler with 10–20 steps or Gragg with 5–10 steps is recommended.
+
+---
+
+## Key differences between v6.2 and v7
+
+| Aspect | v6.2 | v7 |
+|---|---|---|
+| Activities | Production sectors = commodities | Activities (ACTS) separate from commodities (COMM) |
+| Endowment mobility | Mobile (ENDWM) + Sluggish (ENDWS) | Mobile (ENDWM) + Sluggish (ENDWS) + Fixed (ENDWF) |
+| Factor supply | `qo_endw(E,R)` endogenous (long-run) | `qe(EMS,R)` exogenous (fixed stocks short-run) |
+| Output taxes | `to(NS,R)` | `to(C,A,R)` activity-specific |
+| Factor taxes | `tf(E,P,R)` | `tinc(E,A,R)` income + `tfe(E,A,R)` demand |
+| Tech shifters | `ao(P,R)`, `afe(E,P,R)` | `ao(A,R)`, `afe(E,A,R)`, `aint(A,R)` added |
+| Endogenous vars | ~5,800 (10×10×10 agg.) | ~23,900 (10×10×10 agg.) |
 
 ---
 

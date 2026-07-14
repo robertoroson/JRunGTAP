@@ -1,7 +1,15 @@
 JRunGTAP — Variable Reference
 ═══════════════════════════════════════════════════════════════════════════════
 All variables are expressed as percentage changes (% change) from benchmark.
-Index dimensions are shown in parentheses: T=traded commodities, E=endowments,
+
+Select the section for the model version you are using:
+  • Section 1 — GTAP v6.2  (model = v62, the default)
+  • Section 2 — GTAP v7    (model = v7,  Corong et al. 2017)
+
+───────────────────────────────────────────────────────────────────────────────
+SECTION 1 — GTAP v6.2
+───────────────────────────────────────────────────────────────────────────────
+Index dimensions: T=traded commodities, E=endowments,
 P=production sectors (T ∪ CGDS), M=transport margins, R=regions,
 NS=non-savings commodities (T ∪ endowments).
 
@@ -9,9 +17,7 @@ In the standard short-run closure all ENDOGENOUS variables are determined by
 the model; all EXOGENOUS variables are set by the user (shocks). A closure swap
 moves one variable from each list, keeping the system square.
 
-───────────────────────────────────────────────────────────────────────────────
-ENDOGENOUS VARIABLES  (determined by the model)
-───────────────────────────────────────────────────────────────────────────────
+── ENDOGENOUS VARIABLES ──────────────────────────────────────────────────────
 
 ── Government demand ──────────────────────────────────────────────────────────
 pgov          (R)       government expenditure price index
@@ -107,9 +113,7 @@ EV_mn_USD     (R)       equivalent variation in million USD at benchmark prices
 walras_sup    (1)       global savings supply (Walras law check)
 walras_dem    (1)       global investment demand (Walras law check)
 
-───────────────────────────────────────────────────────────────────────────────
-EXOGENOUS VARIABLES  (set by user; shocked to run policy experiments)
-───────────────────────────────────────────────────────────────────────────────
+── EXOGENOUS VARIABLES ───────────────────────────────────────────────────────
 
 ── Technology shocks ──────────────────────────────────────────────────────────
 ao            (P,R)     output-augmenting technical change in sector P
@@ -168,32 +172,241 @@ profitslack   (P,R)     zero-profit slack (relaxes goods market clearing)
 walraslack    (1)       global savings-investment slack (Walras residual)
 incomeslack   (R)       regional income identity slack
 
-───────────────────────────────────────────────────────────────────────────────
-COMMON CLOSURE SWAPS
-───────────────────────────────────────────────────────────────────────────────
-The standard short-run closure fixes all factor supplies (qo_endw) and lets
-the rental rate (rental) be determined endogenously. The most common swaps:
-
+── COMMON CLOSURE SWAPS (v6.2) ───────────────────────────────────────────────
 Long-run (mobile capital, fixed rate of return):
   swap  rental[R]  <->  qo_endw[Capital, R]    for each region R
-  (capital stock adjusts to equate the rate of return across regions)
 
-Fixed real wages (labour market targeting):
+Fixed real wages:
   swap  rental[R]  <->  qo_endw[UnSkLab, R]
   swap  rental[R]  <->  qo_endw[SkLab, R]
 
 Endogenous tariff (fixing import volume):
-  swap  tm[T, R]   <->  qxs[T, origin, R]       for specific (T, origin)
+  swap  tm[T, R]   <->  qxs[T, origin, R]
 
 Endogenous export tax (fixing trade balance):
   swap  tx[T, R]   <->  qxs[T, R, destination]
 
+
 ───────────────────────────────────────────────────────────────────────────────
-NOTES
+SECTION 2 — GTAP v7  (Corong et al. 2017)
+───────────────────────────────────────────────────────────────────────────────
+Key structural differences from v6.2:
+  • Activities (A) are separate from commodities (C); linked by make matrix.
+  • Three endowment types: Mobile (EM), Sluggish (ES), Fixed (EF).
+  • Additional nesting: ESUBT (VA vs. intermediates), ESUBC (among intermediates).
+  • Activity-specific taxes: to(C,A,R), tinc(E,A,R), tfe(E,A,R).
+
+Index dimensions: C=commodities, A=activities, E=endowments (all),
+EM=mobile endowments, ES=sluggish endowments, EF=fixed endowments,
+EMS=mobile+sluggish, EC=capital endowments, M=transport margins, R=regions.
+
+── ENDOGENOUS VARIABLES ──────────────────────────────────────────────────────
+
+── Technology (treated as endo with zero default; shock to apply tech change) ─
+ao            (A,R)     output-augmenting tech index for activity A
+ava           (A,R)     value-added-augmenting tech index
+afa           (C,A,R)   intermediate-input-augmenting tech index (good C, activity A)
+afe           (E,A,R)   endowment-augmenting tech index (endowment E, activity A)
+aint          (A,R)     composite-intermediate-augmenting tech index
+
+── Firm production (Module 1) ────────────────────────────────────────────────
+qo            (A,R)     activity output quantity
+po            (A,R)     average supply price of activity A
+qint          (A,R)     composite intermediate input demand
+pint          (A,R)     composite intermediate price
+qva           (A,R)     value-added composite quantity
+pva           (A,R)     value-added composite price
+qfa           (C,A,R)   composite intermediate demand for good C in activity A
+pfa           (C,A,R)   composite intermediate price (C,A,R)
+qfe           (E,A,R)   endowment demand by activity A (firm)
+pfe           (E,A,R)   price of endowment E paid by activity A
+qfd           (C,A,R)   domestic intermediate demand
+pfd           (C,A,R)   domestic intermediate price (firm)
+qfm           (C,A,R)   imported intermediate demand
+pfm           (C,A,R)   imported intermediate price (firm)
+
+── Commodity supply / make matrix (Module 2) ─────────────────────────────────
+qca           (C,A,R)   quantity of commodity C supplied by activity A
+pca           (C,A,R)   commodity-specific supply price (C,A,R)
+ps            (C,A,R)   supplier price (tax-exclusive) for commodity C from A
+pb            (A,R)     basic price index for activity A
+qc            (C,R)     total supply of commodity C in region R
+pds           (C,R)     domestic commodity price
+
+── Income (Module 3) ─────────────────────────────────────────────────────────
+fincome       (R)       factor income
+y             (R)       regional household income (% change)
+del_indtaxr   (R)       indirect tax revenue change (% of income)
+
+── Income allocation / welfare (Module 4) ────────────────────────────────────
+yp            (R)       private household disposable income
+yg            (R)       government income
+qsave         (R)       quantity of savings
+psave         (R)       price of savings
+u             (R)       regional welfare / utility
+up            (R)       private utility
+ug            (R)       government utility
+uelas         (R)       expenditure elasticity of utility
+uepriv        (R)       CDE sub-utility for private consumption
+p             (R)       regional CPI
+ppriv         (R)       private expenditure price index
+pgov          (R)       government expenditure price index
+dpav          (R)       average expenditure distortion (CDE)
+dpsum         (R)       sum of distribution-parameter shifts (CDE)
+
+── Final demand (Module 5) ───────────────────────────────────────────────────
+qpa           (C,R)     composite private demand for commodity C
+ppa           (C,R)     composite private purchase price
+qpd           (C,R)     private demand for domestic good C
+ppd           (C,R)     private domestic purchase price
+qpm           (C,R)     private demand for imported good C
+ppm           (C,R)     private import purchase price
+tpd           (C,R)     effective private domestic tax wedge
+tpm           (C,R)     effective private import tax wedge
+qga           (C,R)     composite government demand for good C
+pga           (C,R)     government composite purchase price
+qgd           (C,R)     government demand for domestic good C
+pgd           (C,R)     government domestic purchase price
+qgm           (C,R)     government demand for imported good C
+pgm           (C,R)     government import purchase price
+qia           (C,R)     composite investment demand for good C
+pia           (C,R)     investment composite purchase price
+qid           (C,R)     investment demand for domestic good C
+pid           (C,R)     investment domestic purchase price
+qim           (C,R)     investment demand for imported good C
+pim           (C,R)     investment import purchase price
+pinv          (R)       investment goods price index
+
+── Trade (Module 6) ──────────────────────────────────────────────────────────
+qms           (C,R)     composite import demand for commodity C
+pms           (C,R)     composite import price (Armington)
+qxs           (C,R,R)   bilateral trade quantity (commodity, origin, destination)
+pfob          (C,R,R)   f.o.b. export price
+pcif          (C,R,R)   c.i.f. import price
+pmds          (C,R,R)   domestic import price (c.i.f. + tariff)
+ptrans        (C,R,R)   composite transport cost for route (C, origin, dest)
+pr            (C,R)     price received by domestic commodity suppliers
+qds           (C,R)     domestic commodity supply absorbed domestically
+qtmfsd        (M,C,R,R) quantity of margin M for shipping C from R to R
+atmfsd        (M,C,R,R) transport efficiency (tech shift) for margin M, good C, route R→R
+qtm           (M)       total quantity of margin service M demanded globally
+pt            (M)       price of margin service M
+qst           (M,R)     regional supply of margin service M
+
+── Factor markets (Module 7) ─────────────────────────────────────────────────
+pe            (EMS,R)   composite endowment price (mobile + sluggish)
+                         pe[EM,R]: economy-wide mobile factor price (determined by
+                                   market clearing: qfe demand = qe fixed supply)
+                         pe[ES,R]: sluggish endowment price (revenue-share weighted pes)
+pes           (E,A,R)   activity-specific endowment supply price
+peb           (E,A,R)   basic endowment price (pre-tax supply price)
+qes           (E,A,R)   endowment supply to activity A
+                         qes[EM,A,R]: = qe[EM,R] in supply eq. (pes=pe, perfect mobility)
+                         qes[ES,A,R]: CET allocation of sluggish endowment
+                         qes[EF,A,R]: = qesf (exogenous fixed endowment)
+rental        (R)       capital rental rate (weighted average of capital pe)
+
+── Capital and investment (Module 8) ─────────────────────────────────────────
+ke            (R)       end-of-period capital stock (% change)
+kb            (R)       beginning-of-period capital stock (% change)
+rorc          (R)       current net rate of return on capital
+rore          (R)       expected rate of return on capital
+qinv          (R)       regional investment quantity
+expand        (EC,R)    investment expansion factor (capital endowment × region)
+globalcgds    (1)       global net investment quantity index
+rorg          (1)       global (world-average) rate of return on capital
+walras_sup    (1)       global savings supply (Walras check)
+walras_dem    (1)       global investment demand (Walras check)
+pcgdswld      (1)       world capital goods price index
+pfactor       (R)       regional factor price index (numeraire chain)
+
+── EXOGENOUS VARIABLES ───────────────────────────────────────────────────────
+
+── Endowment supplies (short-run: fixed stocks) ──────────────────────────────
+qe            (EMS,R)   total endowment supply (mobile + sluggish), region R
+                         Fixed at 0 in default short-run closure (factor stocks unchanged).
+                         Shock to simulate labour force growth or resource discovery.
+qesf          (EF,A,R)  supply of fixed endowment EF to activity A (always exogenous)
+
+── Technology augmentation shocks ────────────────────────────────────────────
+  (Note: ao, ava, afa, afe, aint are endogenous variables whose default value
+   is zero. They appear as endo so that the linearisation is exact, but in
+   practice they are set by the user as shocks via the cfg file.)
+
+── Activity-specific taxes ───────────────────────────────────────────────────
+to            (C,A,R)   output tax on commodity C produced by activity A
+tinc          (E,A,R)   endowment income tax (wedge between pes and peb)
+tfe           (E,A,R)   firm endowment demand tax (wedge between peb and pfe)
+
+── Intermediate input taxes ──────────────────────────────────────────────────
+tfd           (C,A,R)   tax on domestic intermediate C used by activity A
+tfm           (C,A,R)   tax on imported intermediate C used by activity A
+
+── Private consumption taxes ──────────────────────────────────────────────────
+tpdall        (C,R)     uniform domestic private consumption tax
+tpmall        (C,R)     uniform imported private consumption tax
+tpreg         (R)       aggregate private consumption tax
+
+── Government expenditure taxes ──────────────────────────────────────────────
+tgd           (C,R)     tax on domestic good purchased by government
+tgm           (C,R)     tax on imported good purchased by government
+
+── Investment demand taxes ───────────────────────────────────────────────────
+tid           (C,R)     tax on domestic good for investment
+tim           (C,R)     tax on imported good for investment
+
+── Export and import taxes ───────────────────────────────────────────────────
+tx            (C,R)     ad valorem export tax (uniform across destinations)
+txs           (C,R,R)   ad valorem export tax (source-specific)
+tm            (C,R)     ad valorem import tariff (uniform across origins)
+tms           (C,R,R)   ad valorem import tariff (source-specific)
+ams           (C,R,R)   import-augmenting tech / Armington quality shift
+
+── Transport efficiency ──────────────────────────────────────────────────────
+atm           (M)       global transport efficiency shift
+atf           (C)       commodity-specific transport efficiency
+ats           (R)       origin-region transport efficiency
+atd           (R)       destination-region transport efficiency
+atall         (M,C,R,R) bilateral transport efficiency (overrides component shifts)
+
+── Demand / preference shocks ────────────────────────────────────────────────
+pop           (R)       population growth (scales private demand)
+dppriv        (R)       shift in private demand distribution (CDE)
+dpgov         (R)       shift in government spending
+dpsave        (R)       shift in savings propensity
+au            (R)       utility/preference shift
+
+── Numeraire ─────────────────────────────────────────────────────────────────
+pfactwld      (1)       world factor price index — model numeraire (fixed = 0)
+
+── Closure slack variables (normally zero; do not shock) ─────────────────────
+endwslack     (EMS,R)   endowment market slack
+tradslack     (C,R)     commodity market slack
+profitslack   (A,R)     zero-profit slack
+incomeslack   (R)       income identity slack
+cgdslack      (R)       investment slack
+psaveslack    (R)       savings price slack
+walraslack    (1)       global Walras residual slack
+qesf          (EF,A,R)  fixed endowment supply (always exogenous)
+
+── COMMON CLOSURE SWAPS (v7) ─────────────────────────────────────────────────
+Long-run capital (mobile across regions, fixed global ROR):
+  swap  rental[R]  <->  qe[Capital, R]    for each region R
+
+Long-run labour supply:
+  swap  pe[UnSkLab, R]  <->  qe[UnSkLab, R]
+
+Endogenous tariff (fixing bilateral import volume):
+  swap  tm[C, R]   <->  qxs[C, origin, R]
+
+───────────────────────────────────────────────────────────────────────────────
+NOTES (both versions)
 ───────────────────────────────────────────────────────────────────────────────
 • Variable names in cfg files are case-insensitive (tm = TM = Tm).
 • Index names must match the labels in your GTAPAgg3 aggregation
-  (run load_data() and inspect the printed set names).
+  (run load_data() / load_data_v7() and inspect the printed set names).
 • "all" or "*" may be used as a wildcard index: tm[all, Austria] = 10.0
-• Model-set names (TRAD_COMM, REG, ENDW_COMM, …) may be used as indices.
+• Model-set names (TRAD_COMM, REG, ENDW_COMM, ACTS, …) may be used as indices.
 • User-defined sets can be declared inline: set agri = [pdr, wht, gro]
+• In v7, activities (ACTS) and commodities (COMM) may differ. Check both set
+  names in your aggregation before writing shocks.

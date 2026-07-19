@@ -32,6 +32,7 @@ include("gtap_euler.jl")        # update_data_euler (multi-step Euler)
 
 # ── GTAPv7 infrastructure ─────────────────────────────────────────────────────
 include("gtap_v7.jl")           # GTAPSetsV7, GTAPDataV7, gtap_v7_residuals
+include("gtap_names_v7.jl")     # var_domains / _model_sets / resolve_config for GTAPSetsV7
 include("gtap_pack_v7.jl")      # F_core_v7, make_exog_zero_v7, _endo_specs_v7
 include("gtap_analytical_v7.jl") # build_A_v7
 include("gtap_euler_v7.jl")     # update_data_euler_v7
@@ -193,7 +194,8 @@ function load_data_v7(zippath::String)
 end
 
 reload_data_v7!() = (_DATA_CACHE_V7[] = nothing; _JACOBIAN_CACHE_V7[] = nothing;
-                     _ZIP_CACHE_V7[] = nothing; nothing)
+                     _ZIP_CACHE_V7[] = nothing;
+                     _JAC_PATTERN_V7[] = nothing; _JAC_GROUPS_V7[] = nothing; nothing)
 
 function _get_jacobian_v7(d, s, C; rebuild = false)
     if _JACOBIAN_CACHE_V7[] === nothing || rebuild
@@ -286,7 +288,9 @@ function run_gtap_v7(exp::GTAPExperiment, zippath::String; rebuild_jacobian = fa
     println("\n── v7: $(exp.name) " * "─"^max(0, 57 - length(exp.name)))
     meth_str = exp.method === :johansen ? "Johansen" :
                exp.method === :euler   ? "Euler ($(exp.steps) steps)" :
-                                         "Gragg ($(exp.steps) steps)"
+               (exp.steps >= 6 && exp.steps % 3 == 0) ?
+                   let n = exp.steps ÷ 3; "Gragg Richardson [$n,$(2n),$(3n)]" end :
+                   "Gragg ($(exp.steps) steps)"
     println("  Method : $meth_str")
     isempty(exp.swaps)  || println("  Swaps  : $(length(exp.swaps))")
     isempty(exp.shocks) || for (k,v) in sort(collect(exp.shocks))
@@ -358,26 +362,28 @@ function _euler_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
     100 .* (x_level .- 1)
 end
 
-function _gragg_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0)
+# Single Gragg pass with `np` sub-steps. Returns the x_level vector (not % change).
+function _gragg_pass_v7(shocks, swaps, np::Int, d0::GTAPDataV7, s::GTAPSetsV7, C0;
+                        quiet::Bool=false)
     n       = n_endog_v7(s)
     x_level = ones(n)
     d_cur   = d0;  C_cur = C0
     scalars = (:pfactwld, :walraslack)
 
-    _make_exog_sub_v7() = begin
+    _make_exog_sub() = begin
         ed = Dict(k => copy(float.(v isa Number ? [float(v)] : float.(v)))
                   for (k, v) in pairs(make_exog_zero_v7(s)))
         for (key, val) in shocks
             m = match(r"^(\w+)\[([0-9,]+)\]$", key); m === nothing && continue
             fn = Symbol(m[1]); idxs = parse.(Int, split(m[2], ','))
-            haskey(ed, fn) && (ed[fn][idxs...] = val / steps)
+            haskey(ed, fn) && (ed[fn][idxs...] = val / np)
         end
         NamedTuple(k => (k in scalars ? ed[k][1] : ed[k]) for k in keys(make_exog_zero_v7(s)))
     end
 
-    for step in 1:steps
-        print("\r  step $step/$steps…")
-        exog_sub = _make_exog_sub_v7()
+    for step in 1:np
+        quiet || print("\r  step $step/$np…")
+        exog_sub = _make_exog_sub()
 
         A_cur = build_A_v7(d_cur, s, C_cur)
         b1    = -F_core_v7(zeros(n), exog_sub, d_cur, s, C_cur)
@@ -396,12 +402,43 @@ function _gragg_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
         k2 = lu(A2) \ b2e
 
         x_level .*= (1 .+ k2 ./ 100)
-        dx_full = unpack_endo_v7(k1, make_exog_zero_v7(s), s)
-        d_cur   = update_data_euler_v7(d_cur, dx_full, s)
-        C_cur   = compute_derived_v7(d_cur, s)
+        dx_full  = unpack_endo_v7(k2, make_exog_zero_v7(s), s)
+        d_cur    = update_data_euler_v7(d_cur, dx_full, s)
+        C_cur    = compute_derived_v7(d_cur, s)
     end
-    println("\r  done ($steps steps, Gragg).   ")
-    100 .* (x_level .- 1)
+    x_level
+end
+
+# Gragg solver with Richardson extrapolation over three passes [n1, n2, n3].
+# When steps is divisible by 3 and ≥ 6, uses n1=steps/3, n2=2*steps/3, n3=steps
+# (matching RunGTAP's "Steps = 2 4 6" convention).  Falls back to a single pass otherwise.
+function _gragg_solve_v7(shocks, swaps, steps::Int, d0::GTAPDataV7, s::GTAPSetsV7, C0)
+    if steps >= 6 && steps % 3 == 0
+        n1, n2, n3 = steps ÷ 3, (steps ÷ 3) * 2, steps   # e.g. 2, 4, 6
+
+        print("  Gragg pass n=$n1 …"); flush(stdout)
+        xl1 = _gragg_pass_v7(shocks, swaps, n1, d0, s, C0; quiet=true)
+        print("\r  Gragg pass n=$n2 …"); flush(stdout)
+        xl2 = _gragg_pass_v7(shocks, swaps, n2, d0, s, C0; quiet=true)
+        print("\r  Gragg pass n=$n3 …"); flush(stdout)
+        xl3 = _gragg_pass_v7(shocks, swaps, n3, d0, s, C0; quiet=true)
+
+        # Polynomial extrapolation to h²→0 (Lagrange at u=h²=1/n²).
+        # Error of modified midpoint is O(h²), so T(h²) = T* + a·h² + b·h⁴ + …
+        # Extrapolate using Lagrange basis at u=0 in the variable u=1/n².
+        u1, u2, u3 = 1.0/n1^2, 1.0/n2^2, 1.0/n3^2
+        c1 = (u2 * u3) / ((u1 - u2) * (u1 - u3))   # ≈  1/24  for [2,4,6]
+        c2 = (u1 * u3) / ((u2 - u1) * (u2 - u3))   # ≈ -16/15 for [2,4,6]
+        c3 = (u1 * u2) / ((u3 - u1) * (u3 - u2))   # ≈  81/40 for [2,4,6]
+
+        xl = c1 .* xl1 .+ c2 .* xl2 .+ c3 .* xl3
+        println("\r  done (Richardson [$n1,$n2,$n3]).   ")
+        100 .* (xl .- 1)
+    else
+        xl = _gragg_pass_v7(shocks, swaps, steps, d0, s, C0)
+        println("\r  done ($steps steps, Gragg).   ")
+        100 .* (xl .- 1)
+    end
 end
 
 """
@@ -555,7 +592,9 @@ function run_gtap(exp::GTAPExperiment; rebuild_jacobian = false)
     println("\n── $(exp.name) " * "─"^max(0, 60 - length(exp.name)))
     meth_str = exp.method === :johansen ? "Johansen" :
                exp.method === :euler   ? "Euler ($(exp.steps) steps)" :
-                                         "Gragg ($(exp.steps) steps)"
+               (exp.steps >= 6 && exp.steps % 3 == 0) ?
+                   let n = exp.steps ÷ 3; "Gragg Richardson [$n,$(2n),$(3n)]" end :
+                   "Gragg ($(exp.steps) steps)"
     println("  Method : $meth_str")
     isempty(exp.swaps)  || println("  Swaps  : $(length(exp.swaps))")
     isempty(exp.shocks) || for (k,v) in sort(collect(exp.shocks))
@@ -645,20 +684,13 @@ function _euler_solve(shocks, swaps, steps, d0::GTAPData, s::GTAPSets, C0)
     100 .* (x_level .- 1)
 end
 
-function _gragg_solve(shocks, swaps, steps, d0::GTAPData, s::GTAPSets, C0)
+# Single Gragg pass with `np` sub-steps. Returns the x_level vector (not % change).
+function _gragg_pass(shocks, swaps, np::Int, d0::GTAPData, s::GTAPSets, C0;
+                     quiet::Bool = false)
     # Modified midpoint (Gragg) method.
-    #
-    # Each sub-step:
-    #   1. Solve A(d_cur)*k1 = b(shock/steps, d_cur)  — Euler slope at current benchmark
-    #   2. Advance to midpoint:  d_mid = update(d_cur, k1/2)
-    #   3. Solve A(d_mid)*k2  = b(shock/steps, d_mid)  — slope at midpoint
-    #   4. Accumulate:   x_level *= (1 + k2/100)       — use midpoint slope (2nd-order)
-    #   5. Advance benchmark:  d_cur = update(d_cur, k1) — Euler step, d_cur-consistent
-    #
-    # k2 is used for accumulation (higher-order accuracy); k1 is used for the
-    # benchmark update so that value flows remain consistent with d_cur's price
-    # structure.  Using k2 for the benchmark update causes catastrophic
-    # inconsistency because k2 was linearised at d_mid, not d_cur.
+    # k1 (Euler slope at d_cur) is used for the benchmark update to keep value
+    # flows consistent with d_cur's price structure.
+    # k2 (midpoint slope) is used for accumulation (2nd-order accuracy).
     n       = n_endog(s)
     x_level = ones(n)
     d_cur   = d0
@@ -672,39 +704,58 @@ function _gragg_solve(shocks, swaps, steps, d0::GTAPData, s::GTAPSets, C0)
             m = match(r"^(\w+)\[([0-9,]+)\]$", key)
             m === nothing && continue
             fn = Symbol(m[1]); idxs = parse.(Int, split(m[2], ','))
-            haskey(ed, fn) && (ed[fn][idxs...] = val / steps)
+            haskey(ed, fn) && (ed[fn][idxs...] = val / np)
         end
         NamedTuple(k => (k in scalars ? ed[k][1] : ed[k]) for k in keys(make_exog_zero(s)))
     end
 
-    for step in 1:steps
-        print("\r  step $step/$steps…")
+    for step in 1:np
+        quiet || print("\r  step $step/$np…")
         exog_sub = _make_exog_sub()
 
-        # ── k1: Euler slope at current benchmark ──────────────────────────────
         A_cur = build_A_analytical(d_cur, s, C_cur)
         b1    = -F_core(zeros(n), exog_sub, d_cur, s, C_cur)
         A1, b1e, _, _ = apply_swaps(A_cur, b1, swaps, d_cur, s, C_cur)
         k1 = lu(A1) \ b1e
 
-        # ── Midpoint benchmark: advance d_cur by k1/2 ─────────────────────────
         d_mid = update_data_euler(d_cur, k1 ./ 2, s)
         C_mid = compute_derived(d_mid, s)
 
-        # ── k2: midpoint slope — used for accumulation ────────────────────────
         A_mid = build_A_analytical(d_mid, s, C_mid)
         b2    = -F_core(zeros(n), exog_sub, d_mid, s, C_mid)
         A2, b2e, _, _ = apply_swaps(A_mid, b2, swaps, d_mid, s, C_mid)
         k2 = lu(A2) \ b2e
 
-        # ── Accumulate with midpoint slope; advance benchmark with Euler slope ─
         x_level .*= (1 .+ k2 ./ 100)
-        d_cur = update_data_euler(d_cur, k1, s)   # k1 is consistent with d_cur
+        d_cur = update_data_euler(d_cur, k1, s)
         C_cur = compute_derived(d_cur, s)
     end
 
-    println("\r  done ($steps steps, Gragg).   ")
-    100 .* (x_level .- 1)
+    x_level
+end
+
+# Gragg solver with Richardson extrapolation when steps ≥ 6 and steps % 3 == 0.
+function _gragg_solve(shocks, swaps, steps::Int, d0::GTAPData, s::GTAPSets, C0)
+    if steps >= 6 && steps % 3 == 0
+        n1, n2, n3 = steps ÷ 3, (steps ÷ 3) * 2, steps
+        print("  Gragg pass n=$n1 …"); flush(stdout)
+        xl1 = _gragg_pass(shocks, swaps, n1, d0, s, C0; quiet=true)
+        print("\r  Gragg pass n=$n2 …"); flush(stdout)
+        xl2 = _gragg_pass(shocks, swaps, n2, d0, s, C0; quiet=true)
+        print("\r  Gragg pass n=$n3 …"); flush(stdout)
+        xl3 = _gragg_pass(shocks, swaps, n3, d0, s, C0; quiet=true)
+        u1, u2, u3 = 1.0/n1^2, 1.0/n2^2, 1.0/n3^2
+        c1 = (u2 * u3) / ((u1 - u2) * (u1 - u3))
+        c2 = (u1 * u3) / ((u2 - u1) * (u2 - u3))
+        c3 = (u1 * u2) / ((u3 - u1) * (u3 - u2))
+        xl = c1 .* xl1 .+ c2 .* xl2 .+ c3 .* xl3
+        println("\r  done (Richardson [$n1,$n2,$n3]).   ")
+        100 .* (xl .- 1)
+    else
+        xl = _gragg_pass(shocks, swaps, steps, d0, s, C0)
+        println("\r  done ($steps steps, Gragg).   ")
+        100 .* (xl .- 1)
+    end
 end
 
 # ── (d) Extract and export results ────────────────────────────────────────────
@@ -998,30 +1049,46 @@ function parse_config(filename::String)
     user_sets  = Dict{String,Vector{String}}()
     method     = :johansen
     steps      = 10
-    model      = :v62   # :v62 or :v7
+    # GEMPACK .cmf/.exp files are always v7; .cfg files default to v62 for backwards compat
+    model      = endswith(lowercase(filename), ".cmf") || endswith(lowercase(filename), ".exp") ? :v7 : :v62
 
     # Regex for a numeric value (int or float, optional sign/exponent)
     numre = raw"[+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?\d+)?"
-    # Regex for a variable spec allowing names, quotes, spaces inside brackets
-    specre = raw"\w+\[[^\]]+\]"
+    # Regex for a variable spec: either bracket form  foo[a,b]  or GEMPACK paren form  foo("a","b")
+    specre_sq = raw"\w+\[[^\]]+\]"
+    specre_gp = raw"\w+\([^)]+\)"
+    specre    = "(?:$specre_sq|$specre_gp)"
+
+    # Convert GEMPACK paren spec  foo("a","b","c")  →  foo[a,b,c]  for uniform downstream handling
+    function _norm_spec(s::AbstractString)
+        m2 = match(r"^(\w+)\(([^)]+)\)$", strip(s))
+        m2 === nothing && return s   # already bracket form
+        args = join([strip(t, [' ', '"', '\'']) for t in split(m2[2], ',')], ',')
+        "$(m2[1])[$args]"
+    end
 
     for (lineno, raw) in enumerate(eachline(filename))
-        line = strip(split(raw, '#')[1])
+        # Strip GEMPACK-style ! comments AND ; terminators
+        line = strip(split(split(raw, '!')[1], ';')[1])
+        # Also strip # comments (Julia/cfg style)
+        line = strip(split(line, '#')[1])
         isempty(line) && continue
 
-        if (m = match(r"^\s*model\s*=\s*(\w+)", line)) !== nothing
+        if (m = match(r"^\s*model\s*=\s*(\w+)"i, line)) !== nothing
             mv = lowercase(m[1])
             mv in ("v62", "v7") ||
                 error("Line $lineno: unknown model '$(m[1])' — valid options are: v62, v7")
             model = Symbol(mv)
 
-        elseif (m = match(r"^\s*method\s*=\s*(\w+)", line)) !== nothing
+        elseif (m = match(r"^\s*method\s*=\s*(\w+)"i, line)) !== nothing
             method = Symbol(lowercase(m[1]))
             method in (:johansen, :euler, :gragg) ||
                 error("Line $lineno: unknown method '$(m[1])' — valid options are: johansen, euler, gragg")
 
-        elseif (m = match(r"^\s*steps\s*=\s*(\d+)", line)) !== nothing
-            steps = parse(Int, m[1])
+        elseif (m = match(r"^\s*steps\s*=\s*([\d\s,]+)"i, line)) !== nothing
+            # Accept "2", "2 4 6", or "2,4,6" — use the LAST value (highest accuracy, like GEMPACK)
+            nums = [parse(Int, s) for s in split(m[1], r"[\s,]+") if !isempty(s)]
+            steps = isempty(nums) ? 10 : last(nums)
 
         elseif (m = match(r"^\s*set\s+(\w+)\s*=\s*\[([^\]]+)\]", line)) !== nothing
             setname = lowercase(m[1])
@@ -1029,12 +1096,18 @@ function parse_config(filename::String)
                        for e in split(m[2], ',')]
             user_sets[setname] = filter(!isempty, elems)
 
-        elseif (m = match(Regex("^\\s*shock\\s+($specre)\\s*=\\s*($numre)"), line)) !== nothing
-            push!(raw_shocks, m[1] => parse(Float64, m[2]))
+        elseif (m = match(Regex("^\\s*shock\\s+($specre)\\s*=\\s*($numre)", "i"), line)) !== nothing
+            push!(raw_shocks, _norm_spec(m[1]) => parse(Float64, m[2]))
 
-        elseif (m = match(Regex("^\\s*swap\\s+($specre)\\s*<->\\s*($specre)(?:\\s+fix_at\\s*=\\s*($numre))?"), line)) !== nothing
+        elseif (m = match(Regex("^\\s*swap\\s+($specre)\\s*<->\\s*($specre)(?:\\s+fix_at\\s*=\\s*($numre))?", "i"), line)) !== nothing
             fix_at = m[3] !== nothing ? parse(Float64, m[3]) : 0.0
-            push!(raw_swaps, (m[1], m[2], fix_at))
+            push!(raw_swaps, (_norm_spec(m[1]), _norm_spec(m[2]), fix_at))
+
+        elseif match(r"^\s*(?:cpu|nds|extrapolation|aux\s+files?|file\s|updated\s+file|solution\s+file|verbal\s+description|subintervals?|exogenous|rest\s+endogenous|!|@)"i, line) !== nothing ||
+               !occursin('=', line)
+            # Silently ignore: GEMPACK-specific directives, and lines without '='
+            # (the latter covers exogenous variable list continuation lines)
+            nothing
 
         else
             @warn "Line $lineno: unrecognised directive — $line"
@@ -1042,6 +1115,55 @@ function parse_config(filename::String)
     end
 
     return method, steps, raw_shocks, raw_swaps, user_sets, model
+end
+
+function show_results(sol::GTAPSolutionV7)
+    s = sol.s
+    println("\n── Results: $(sol.experiment.name) (v7) " * "─"^36)
+
+    _get(nm) = try get_result_v7(sol, nm) catch; nothing end
+
+    u_arr = _get(:u)
+    y_arr = _get(:y)
+    p_arr = _get(:p)
+
+    if u_arr !== nothing
+        ev_arr = sol.C.INCOME .* u_arr ./ 100
+        println("  Region              welfare(u)    income(y)    CPI(p)    EV (mn USD)")
+        println("  " * "─"^72)
+        for r in 1:length(s.REG)
+            @printf("  %-20s %10.4f   %10.4f   %10.4f   %12.2f\n",
+                    s.REG[r],
+                    u_arr[r],
+                    y_arr !== nothing ? y_arr[r] : NaN,
+                    p_arr  !== nothing ? p_arr[r]  : NaN,
+                    ev_arr[r])
+        end
+        @printf("  %-20s %10s   %10s   %10s   %12.2f\n",
+                "WORLD", "", "", "", sum(ev_arr))
+    end
+
+    println()
+    println("  variable   description                  min          max          ‖·‖∞")
+    println("  " * "─"^72)
+    for (nm, desc) in [(:qo,  "output (%)"),
+                        (:qxs, "bilateral trade volumes (%)"),
+                        (:pms, "import prices (%)"),
+                        (:psave, "savings price (%)")]
+        v = _get(nm)
+        v === nothing && continue
+        flat = vec(v)
+        @printf("  %-10s %-28s %12.4f  %12.4f  %12.4f\n",
+                nm, desc, minimum(flat), maximum(flat), maximum(abs, flat))
+    end
+
+    if !isempty(sol.swap_in)
+        println("  " * "─"^72)
+        println("  Swapped-in variables (now endogenous):")
+        for (j, spec) in sort(collect(sol.swap_in))
+            @printf("  %-36s = %12.6f\n", spec, sol.x_endo[j])
+        end
+    end
 end
 
 # ── Interactive runner ────────────────────────────────────────────────────────
@@ -1057,41 +1179,52 @@ function run_gtap_interactive()
     println("  JRunGTAP — interactive experiment runner")
     println("═"^60)
 
-    # ── Data: ask for zip path once; reuse cache on subsequent calls ────────
-    if _DATA_CACHE[] === nothing
-        local zippath
+    # ── Zip path: ask once; cache for subsequent calls ───────────────────────
+    local zippath
+    if _ZIP_CACHE[] !== nothing
+        zippath = _ZIP_CACHE[]
+        println("\n  (zip cached — $(basename(zippath)))")
+    elseif _ZIP_CACHE_V7[] !== nothing
+        zippath = _ZIP_CACHE_V7[]
+        println("\n  (zip cached — $(basename(zippath)))")
+    else
         while true
             print("\n  GTAPAgg3 zip file : ")
             zippath = String(strip(readline()))
             isfile(zippath) && break
             println("  ✗  File not found: \"$zippath\"  — please try again.")
         end
-        load_data(zippath)
-    else
-        println("\n  (data already loaded — $(basename(_ZIP_CACHE[])))")
     end
-    s, d, C = _DATA_CACHE[]
 
-    # ── Experiment name → parse config → solve (loop on cfg errors) ─────────
+    # ── Experiment name → parse config → load data → solve ──────────────────
     local sol
     while true
         local name
+        local cfgfile
         while true
             print("\n  Experiment name : ")
             name = String(strip(readline()))
             isempty(name) && (name = "experiment")
-            cfgfile_check = name * ".cfg"
-            isfile(cfgfile_check) && break
-            println("  ✗  Config file not found: \"$cfgfile_check\"  — please try again.")
+            # Accept .cfg (native), .cmf, or .exp (GEMPACK formats)
+            found = findfirst(ext -> isfile(name * ext), [".cfg", ".cmf", ".exp"])
+            if found !== nothing
+                cfgfile = name * [".cfg", ".cmf", ".exp"][found]
+                break
+            end
+            println("  ✗  Config file not found: \"$(name).cfg\" / .cmf / .exp  — please try again.")
         end
-        cfgfile = name * ".cfg"
         csvfile = name * ".csv"
 
         try
             method, steps, raw_shocks, raw_swaps, user_sets, model = parse_config(cfgfile)
 
-            # For v7 we need different sets for resolve_config — use v7 loader or fallback
-            s_cfg = model === :v7 ? (load_data_v7(_ZIP_CACHE_V7[] !== nothing ? _ZIP_CACHE_V7[] : _ZIP_CACHE[])[1]) : s
+            # Load the appropriate data now that we know the model version.
+            s_cfg = if model === :v7
+                load_data_v7(zippath)[1]
+            else
+                load_data(zippath)
+                _DATA_CACHE[][1]
+            end
             shocks, swaps = resolve_config(raw_shocks, raw_swaps, user_sets, s_cfg)
 
             println("\n  ── Resolved configuration " * "─"^34)
@@ -1113,8 +1246,7 @@ function run_gtap_interactive()
             exp = gtap_experiment(name; shocks = shocks, swaps = swaps,
                                   method = method, steps = steps)
             sol = if model === :v7
-                zip_v7 = _ZIP_CACHE_V7[] !== nothing ? _ZIP_CACHE_V7[] : _ZIP_CACHE[]
-                run_gtap_v7(exp, zip_v7)
+                run_gtap_v7(exp, zippath)
             else
                 run_gtap(exp)
             end

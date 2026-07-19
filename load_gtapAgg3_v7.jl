@@ -120,7 +120,10 @@ function load_from_zip_v7(zippath::String)
     sets_arrs, _ = load_har(set_file)
     dat_arrs,  _ = load_har(dat_file)
     par_arrs,  _ = load_har(par_file)
-    all_arrs      = merge(sets_arrs, dat_arrs, par_arrs)
+    # Also load baserate.har if present (contains ad-valorem rate matrices rTFD, rTFM, etc.)
+    rate_file = _find("baserate.har")
+    rate_arrs = rate_file !== nothing ? load_har(rate_file)[1] : Dict{String,Any}()
+    all_arrs  = merge(sets_arrs, dat_arrs, par_arrs, rate_arrs)
 
     g(h) = begin
         v = get(all_arrs, h, nothing)
@@ -197,14 +200,40 @@ function load_from_zip_v7(zippath::String)
     end
 
     # ── Value flows ────────────────────────────────────────────────────────────
-    MAKES  = _reshape_to(Float64.(g("MAKS")), (nC, nA, nR), "MAKS")
+    # MAKS (make matrix at supplier prices): fall back to MAKB when absent.
     MAKEB  = _reshape_to(Float64.(g("MAKB")), (nC, nA, nR), "MAKB")
+    MAKES  = if gn("MAKS", nothing) !== nothing
+        _reshape_to(Float64.(g("MAKS")), (nC, nA, nR), "MAKS")
+    else
+        @info "MAKS not found — using MAKB as supplier-price make matrix"
+        copy(MAKEB)
+    end
+
     EVOS   = _reshape_to(Float64.(g("EVOS")), (nE, nA, nR), "EVOS")
     EVFB   = _reshape_to(Float64.(g("EVFB")), (nE, nA, nR), "EVFB")
     EVFP   = _reshape_to(Float64.(g("EVFP")), (nE, nA, nR), "EVFP")
-    VDFB   = _reshape_to(Float64.(g("VDFB")), (nC, nA, nR), "VDFB")
     VMFB   = _reshape_to(Float64.(g("VMFB")), (nC, nA, nR), "VMFB")
     VMFP   = _reshape_to(Float64.(g("VMFP")), (nC, nA, nR), "VMFP")
+
+    # VDFB (domestic intermediate demand at basic prices):
+    # Newer GTAPAgg3 archives store only VDFP (at purchaser prices).
+    # Recover VDFB using the ad-valorem intermediate tax rate rTFD from baserate.har:
+    #   VDFP = VDFB * (1 + rTFD/100)  →  VDFB = VDFP / (1 + rTFD/100)
+    VDFP_arr = _reshape_to(Float64.(g("VDFP")), (nC, nA, nR), "VDFP")
+    VDFB   = if gn("VDFB", nothing) !== nothing
+        _reshape_to(Float64.(g("VDFB")), (nC, nA, nR), "VDFB")
+    else
+        rTFD_raw = gn("rTFD", gn("RTFD", nothing))
+        if rTFD_raw !== nothing
+            @info "VDFB not found — deriving from VDFP and rTFD (baserate.har)"
+            rTFD_mat = _reshape_to(Float64.(rTFD_raw), (nC, nA, nR), "rTFD")
+            VDFP_arr ./ max.(1.0 .+ rTFD_mat ./ 100.0, 1e-6)
+        else
+            @warn "VDFB and rTFD not found — using VDFP as basic-price approximation"
+            copy(VDFP_arr)
+        end
+    end
+
     VDPB   = _reshape_to(Float64.(g("VDPB")), (nC, nR), "VDPB")
     VMPB   = _reshape_to(Float64.(g("VMPB")), (nC, nR), "VMPB")
     VDPP   = _reshape_to(Float64.(g("VDPP")), (nC, nR), "VDPP")
@@ -223,10 +252,76 @@ function load_from_zip_v7(zippath::String)
     VMSB   = _reshape_to(Float64.(g("VMSB")), (nC, nR, nR), "VMSB")
     VST    = _reshape_to(Float64.(g("VST")),  (nM, nR), "VST")
     VTMFSD = _reshape_to(Float64.(g("VTWR")), (nM, nC, nR, nR), "VTWR")
-    SAVE   = vec(Float64.(g("SAVE")))
-    VDEP   = vec(Float64.(g("VDEP")))
-    VKB    = vec(Float64.(g("VKB")))
-    DPARSUM= vec(Float64.(g("DPSM")))
+
+    # SAVE, VKB, VDEP, DPARSUM: present in GTAP12-SA style archives; absent in newer
+    # GTAPAgg3 archives.  Derive from available data when not stored explicitly.
+
+    SUBPAR_arr = _reshape_to(Float64.(g("SUBP")), (nC, nR), "SUBP")
+
+    DPARSUM = if gn("DPSM", nothing) !== nothing
+        vec(Float64.(g("DPSM")))
+    else
+        # DPARSUM[r] = sum_c SUBPAR[c,r]  (sum of CDE substitution parameters)
+        @info "DPSM not found — computing as sum_c SUBPAR[c,r]"
+        vec(sum(SUBPAR_arr, dims=1))
+    end
+
+    SAVE = if gn("SAVE", nothing) !== nothing
+        vec(Float64.(g("SAVE")))
+    else
+        # Derive SAVE from the regional budget identity:
+        #   INCOME[r] = EVFP.sum(ea,r)         (factor income incl. factor taxes)
+        #             + PTAX.sum(ca,r)           (production/output taxes)
+        #             + (VMSB-VCIF).sum(s,r)     (import tariff revenue into r)
+        #             + XTRV.sum(c,r,d)          (export tax revenue from r)
+        #             + (VDIP+VMIP-VDIB-VMIB).sum(c,r)  (investment demand taxes)
+        #             + (VDFP-VDFB).sum(ca,r)    (domestic intermediate taxes)
+        #             + (VMFP-VMFB).sum(ca,r)    (imported intermediate taxes)
+        #   SAVE[r]   = INCOME[r]
+        #             - (VDPB+VMPB).sum(c,r)     (private consumption at basic)
+        #             - (VDGB+VMGB).sum(c,r)     (govt consumption at basic)
+        @info "SAVE not found — computing from budget identity"
+        PTAX_raw = gn("PTAX", nothing)
+        PTAX_arr = PTAX_raw !== nothing ?
+            _reshape_to(Float64.(PTAX_raw), (nC, nA, nR), "PTAX") : zeros(nC, nA, nR)
+        XTRV_raw = gn("XTRV", nothing)
+        XTRV_arr = XTRV_raw !== nothing ?
+            _reshape_to(Float64.(XTRV_raw), (nC, nR, nR), "XTRV") : zeros(nC, nR, nR)
+        SAVE_vec = zeros(nR)
+        for r in 1:nR
+            factor_inc   = sum(EVFP[:,:,r])
+            output_tax   = sum(PTAX_arr[:,:,r])
+            tariff_rev   = sum(VMSB[:,:,r]) - sum(VCIF[:,:,r])
+            export_tax   = sum(XTRV_arr[:,r,:])
+            inv_tax      = sum(VDIP[:,r] .- VDIB[:,r]) + sum(VMIP[:,r] .- VMIB[:,r])
+            dom_int_tax  = sum(VDFP_arr[:,:,r] .- VDFB[:,:,r])
+            imp_int_tax  = sum(VMFP[:,:,r]  .- VMFB[:,:,r])
+            priv_basic   = sum(VDPB[:,r]) + sum(VMPB[:,r])
+            govt_basic   = sum(VDGB[:,r]) + sum(VMGB[:,r])
+            SAVE_vec[r]  = factor_inc + output_tax + tariff_rev + export_tax +
+                           inv_tax + dom_int_tax + imp_int_tax - priv_basic - govt_basic
+        end
+        SAVE_vec
+    end
+
+    # VKB (beginning-of-period capital stock) and VDEP (depreciation):
+    # When absent, estimate VKB from capital endowment income at a benchmark rate of return
+    # and set depreciation at 5% of the capital stock.
+    cap_idx = findfirst(e -> occursin(r"(?i)capital", e), ENDW)
+    cap_idx === nothing && (cap_idx = length(ENDW))   # last endowment as fallback
+    VKB = if gn("VKB", nothing) !== nothing
+        vec(Float64.(g("VKB")))
+    else
+        @info "VKB not found — estimating from capital endowment income (10% return)"
+        # Capital income = EVOS[cap,:,r].sum(); VKB = capital income / rate_of_return
+        [sum(EVOS[cap_idx,:,r]) / 0.10 for r in 1:nR]
+    end
+    VDEP = if gn("VDEP", nothing) !== nothing
+        vec(Float64.(g("VDEP")))
+    else
+        @info "VDEP not found — estimating as 5% of VKB"
+        VKB .* 0.05
+    end
 
     # ── Elasticity parameters ─────────────────────────────────────────────────
     # Helper: try multiple header names, fall back to a default array
@@ -290,7 +385,15 @@ function load_from_zip_v7(zippath::String)
     ETRAE   = _reshape_to(Float64.(g("ETRE")), (nE, nR), "ETRE")
     INCPAR  = _reshape_to(Float64.(g("INCP")), (nC, nR), "INCP")
     SUBPAR  = _reshape_to(Float64.(g("SUBP")), (nC, nR), "SUBP")
-    RORFLEX = vec(Float64.(g("RFLX")))
+    # RFLX (ROR flexibility): scalar or (nR,); default 1.0 when absent.
+    RORFLEX_raw = gn("RFLX", nothing)
+    RORFLEX = if RORFLEX_raw !== nothing
+        v = vec(Float64.(RORFLEX_raw))
+        length(v) == nR ? v : fill(v[1], nR)
+    else
+        @info "RFLX not found — using standard GTAP default ROR flexibility of 10.0"
+        fill(10.0, nR)
+    end
     RORDELTA= Int(round(first(Float64.(gn("RDLT", [1.0])))))
 
     d = GTAPDataV7(

@@ -319,3 +319,5 @@ function resolve_config(raw_shocks,
 
     return shocks, swaps
 end
+
+# ── GTAPv7 overloads are in gtap_names_v7.jl (included after gtap_v7.jl) ────

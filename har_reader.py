@@ -123,13 +123,26 @@ def read_har(fname):
             for s in shape:
                 total *= s
 
-            # ── Page-structure record (skip) ──────────────────────────────
-            page_rec, _ = rrec(f)
+            # ── Page-structure record ─────────────────────────────────────
+            # Parse elements_per_page from page structure record.
+            # Layout: [4 pad][4 n_records][4 stride][4 page_dim0][4 stride][4 page_dim1]...
+            # elements_per_page = product of page_dim_i at indices 3,5,7,... (one per dim)
+            page_rec, page_rec_len = rrec(f)
             if page_rec is None:
                 break
+            try:
+                elements_per_page = 1
+                for k in range(ndim):
+                    idx = (3 + 2 * k) * 4
+                    if idx + 4 <= len(page_rec):
+                        elements_per_page *= max(1, struct.unpack_from('<i', page_rec, idx)[0])
+                elements_per_page = max(1, elements_per_page)
+            except Exception:
+                elements_per_page = total  # fallback: assume single page
 
             # ── Data records (paginated for large arrays) ─────────────────
             # Between data chunks, GEMPACK inserts 64-byte page-header records.
+            # These appear after exactly elements_per_page elements are collected.
             # Data record layout: [4-byte pad][4-byte int][payload]
             chunks = []
             collected = 0
@@ -137,8 +150,8 @@ def read_har(fname):
                 drec, dlen = rrec(f)
                 if drec is None:
                     break
-                # 64-byte records between data chunks are page headers — skip
-                if dlen == 64:
+                # Skip 64-byte records only at actual page boundaries (not data records)
+                if dlen == 64 and collected > 0 and collected % elements_per_page == 0:
                     continue
                 payload = drec[8:]   # skip 4-byte pad + 4-byte header int
                 if rtype == 'RE':

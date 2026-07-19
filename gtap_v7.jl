@@ -51,9 +51,12 @@ Rows with ENDOWFLAG[e,1]=1 → mobile; [e,2]=1 → sluggish; [e,3]=1 → fixed.
 function build_sets_v7(REG, COMM, ACTS, MARG, ENDW, ENDWFLAG::Matrix{Int},
                        ENDWC::Vector{String})
     NMRG   = [c for c in COMM if c ∉ MARG]
-    ENDWM  = ENDW[ENDWFLAG[:,1] .> 0]
-    ENDWS  = ENDW[ENDWFLAG[:,2] .> 0]
-    ENDWF  = ENDW[ENDWFLAG[:,3] .> 0]
+    # Capital endowments (ENDWC) are sluggish in GTAPv7 regardless of ENDOWFLAG.
+    # The data's ENDM/ENDOWFLAG marks Capital as mobile following GTAPv6 convention,
+    # but GTAPv7 uses a RORFLEX/investment mechanism for capital — it belongs in ENDWS.
+    ENDWM  = [e for e in ENDW if ENDWFLAG[findfirst(==(e),ENDW),1] > 0 && e ∉ ENDWC]
+    ENDWS  = vcat(ENDWC, [e for e in ENDW if ENDWFLAG[findfirst(==(e),ENDW),2] > 0 && e ∉ ENDWC])
+    ENDWF  = [e for e in ENDW if ENDWFLAG[findfirst(==(e),ENDW),3] > 0 && e ∉ ENDWC]
     ENDWMS = vcat(ENDWM, ENDWS)
     DEMD   = vcat(ENDW, COMM)
     return GTAPSetsV7(REG, COMM, ACTS, MARG, NMRG, ENDW, ENDWM, ENDWS, ENDWF,
@@ -694,7 +697,7 @@ function gtap_v7_residuals(v, d::GTAPDataV7, s::GTAPSetsV7, C)
 
     # E_qxs: regional demand for disaggregated imports (Armington)
     # (dd = destination region, avoids shadowing the data struct d)
-    R[:E_qxs] = [v.qxs[c,ss,dd] + v.ams[c,ss,dd] - v.qms[c,dd] +
+    R[:E_qxs] = [v.qxs[c,ss,dd] - v.ams[c,ss,dd] - v.qms[c,dd] +
                  d.ESUBM[c]*(v.pmds[c,ss,dd] - v.ams[c,ss,dd] - v.pms[c,dd])
                  for c in 1:nC, ss in 1:nR, dd in 1:nR]
 

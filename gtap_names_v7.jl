@@ -48,6 +48,12 @@ function var_domains(s::GTAPSetsV7; lowercase::Bool = true)
         :qo_slack    => [C, R],
         :to_slack    => [C, A, R],
         :psave_slack => [R],
+        # ── Endogenous variables that can appear in swap endo_out specs ────────
+        :qxs         => [C, R, R],   # bilateral trade volumes (can be quota-fixed)
+        :qo          => [A, R],       # activity output
+        :psave       => [R],          # regional savings price
+        :rore        => [R],          # expected rate of return
+        :ke          => [R],          # expected capital stock growth
     )
 end
 

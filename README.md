@@ -46,7 +46,8 @@ Version 7 introduces several key model extensions relative to v6.2:
 | **v7 model** | |
 | `gtap_v7.jl` | Sets, data structs, derived coefficients, equation residuals (v7) |
 | `gtap_pack_v7.jl` | Pack/unpack for v7; `F_core_v7` residual function |
-| `gtap_analytical_v7.jl` | Jacobian builder for v7 (column-by-column, exact for linear model) |
+| `gtap_analytical_v7.jl` | Cached sparsity-pattern + compressed finite-difference Jacobian builder (v7) |
+| `gtap_jacobian_analytical_v7.jl` | Direct analytical Jacobian builder for v7 (< 1 s; used by default) |
 | `gtap_euler_v7.jl` | Level-update for multi-step integration (v7) |
 | `load_gtapAgg3_v7.jl` | HAR file loader for GTAPv7 zip archives |
 | **Shared** | |
@@ -197,9 +198,11 @@ export_results(sol, "myexp.csv")
 
 For small shocks (< 5 pp), Johansen is adequate. For large shocks, `gragg` with `steps = 6` or `steps = 9` (Richardson) is recommended.
 
-### v7 Jacobian: compressed finite differences
+### v7 Jacobian: direct analytical builder
 
-The GTAPv7 Jacobian builder (`gtap_analytical_v7.jl`) caches the sparsity pattern on the first call and subsequently uses **greedy column colouring** with compressed finite differences. Columns that share no common row are probed simultaneously in a single residual evaluation. Because the model is exactly linear in percentage changes, compressed FD is numerically exact (not an approximation). Typical GTAP datasets reach 20–50 colour groups, giving a 2000–5000× speedup over column-by-column probing for subsequent Euler/Gragg sub-steps.
+The default Jacobian builder (`gtap_jacobian_analytical_v7.jl`) constructs the GTAPv7 system matrix analytically by reading each coefficient directly from the data. Build time is under 1 second for any dataset size. The result is cached to disk next to the data zip and reused on subsequent runs.
+
+`gtap_analytical_v7.jl` provides an alternative builder that caches the sparsity pattern on the first call and subsequently uses **greedy column colouring** with compressed finite differences. Columns that share no common row are probed simultaneously in a single residual evaluation. Because the model is exactly linear in percentage changes, compressed FD is numerically exact. Typical GTAP datasets reach 20–50 colour groups, giving a 2000–5000× speedup over column-by-column probing for subsequent Euler/Gragg sub-steps.
 
 ---
 

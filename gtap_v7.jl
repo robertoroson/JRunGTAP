@@ -51,12 +51,12 @@ Rows with ENDOWFLAG[e,1]=1 → mobile; [e,2]=1 → sluggish; [e,3]=1 → fixed.
 function build_sets_v7(REG, COMM, ACTS, MARG, ENDW, ENDWFLAG::Matrix{Int},
                        ENDWC::Vector{String})
     NMRG   = [c for c in COMM if c ∉ MARG]
-    # Capital endowments (ENDWC) are sluggish in GTAPv7 regardless of ENDOWFLAG.
-    # The data's ENDM/ENDOWFLAG marks Capital as mobile following GTAPv6 convention,
-    # but GTAPv7 uses a RORFLEX/investment mechanism for capital — it belongs in ENDWS.
-    ENDWM  = [e for e in ENDW if ENDWFLAG[findfirst(==(e),ENDW),1] > 0 && e ∉ ENDWC]
-    ENDWS  = vcat(ENDWC, [e for e in ENDW if ENDWFLAG[findfirst(==(e),ENDW),2] > 0 && e ∉ ENDWC])
-    ENDWF  = [e for e in ENDW if ENDWFLAG[findfirst(==(e),ENDW),3] > 0 && e ∉ ENDWC]
+    # Follow ENDOWFLAG directly: ENDOWFLAG[e,1]=1 → mobile, [e,2]=1 → sluggish, [e,3]=1 → fixed.
+    # Capital (ENDWC) has ENDOWFLAG=[1,0,0] → mobile, matching GEMPACK RunGTAP behaviour
+    # where rental rates equalize across activities within a region (E_qes1 applies).
+    ENDWM  = [e for e in ENDW if ENDWFLAG[findfirst(==(e),ENDW),1] > 0]
+    ENDWS  = [e for e in ENDW if ENDWFLAG[findfirst(==(e),ENDW),2] > 0]
+    ENDWF  = [e for e in ENDW if ENDWFLAG[findfirst(==(e),ENDW),3] > 0]
     ENDWMS = vcat(ENDWM, ENDWS)
     DEMD   = vcat(ENDW, COMM)
     return GTAPSetsV7(REG, COMM, ACTS, MARG, NMRG, ENDW, ENDWM, ENDWS, ENDWF,
@@ -85,6 +85,7 @@ struct GTAPDataV7
     EVFB   ::Array{Float64,3}        # (nE,nA,nR)   endow. firm demand, basic prices
     EVFP   ::Array{Float64,3}        # (nE,nA,nR)   endow. firm demand, purch. prices
     VDFB   ::Array{Float64,3}        # (nC,nA,nR)   dom. interm. demand, basic prices
+    VDFP   ::Array{Float64,3}        # (nC,nA,nR)   dom. interm. demand, purch. prices
     VMFB   ::Array{Float64,3}        # (nC,nA,nR)   imp. interm. demand, basic prices
     VMFP   ::Array{Float64,3}        # (nC,nA,nR)   imp. interm. demand, purch. prices
     VXSB   ::Array{Float64,3}        # (nC,nR,nR)   exports at basic prices
@@ -188,43 +189,50 @@ function compute_derived_v7(d::GTAPDataV7, s::GTAPSetsV7)
     # ── VFB(c,a,r) = VDFB + VMFB (total basic-price intermediate demand) ────
     VFB_com = d.VDFB .+ d.VMFB   # (nC, nA, nR)
 
-    # ── STC: cost share of input d in total costs of act. a at basic prices ─
-    # For endowments: EVFB(e,a,r); for commodities: VDFB(c,a,r)+VMFB(c,a,r)
-    # VOS is at supplier prices; STC normalized to VOS
+    # ── VFP(c,a,r) = VDFP + VMFP (total producer-price intermediate demand) ─
+    # GTAPuv7 E_qo uses STC = VFP/VOS (producer prices / supplier-price output).
+    # Using EVFB/VOM instead causes large errors when factor-use taxes are large
+    # (e.g., Italian payroll tax ≈ 51% of basic wage in electricity).
+    VFP_com = d.VDFP .+ d.VMFP   # (nC, nA, nR)
+
+    # ── STC: cost share of input d in total costs of act. a (GTAPuv7: VFP/VOS) ─
     STC_endw = zeros(nE, nA, nR)
     STC_comm = zeros(nC, nA, nR)
     for a in 1:nA, r in 1:nR
         denom = max(MAKESCOM[a,r], 1e-10)
-        STC_endw[:,a,r] = d.EVFB[:,a,r] ./ denom
-        STC_comm[:,a,r] = VFB_com[:,a,r] ./ denom
+        STC_endw[:,a,r] = d.EVFP[:,a,r] ./ denom
+        STC_comm[:,a,r] = VFP_com[:,a,r] ./ denom
     end
 
-    # ── VVA: value added = sum_e EVFB(e,a,r) ───────────────────────────────
+    # ── VVA: value added at basic prices (kept for compatibility) ───────────
     VVA = dropdims(sum(d.EVFB, dims=1), dims=1)  # (nA, nR)
 
-    # ── SVA: share of endowment e in VA of act. a in r ──────────────────────
+    # ── VVA_fp: value added at producer prices = sum_e EVFP(e,a,r) ─────────
+    VVA_fp = dropdims(sum(d.EVFP, dims=1), dims=1)  # (nA, nR)
+
+    # ── SVA: share of endowment e in VA of act. a in r (GTAPuv7: EVFP/VVA_fp)
     DEFAULTVASHR = zeros(nE)
-    denom_sva = max(sum(VVA), 1e-10)
-    for ei in 1:nE; DEFAULTVASHR[ei] = sum(d.EVFB[ei,:,:]) / denom_sva; end
+    denom_sva = max(sum(VVA_fp), 1e-10)
+    for ei in 1:nE; DEFAULTVASHR[ei] = sum(d.EVFP[ei,:,:]) / denom_sva; end
 
     SVA = zeros(nE, nA, nR)
     for ei in 1:nE, a in 1:nA, r in 1:nR
-        SVA[ei,a,r] = VVA[a,r] > 0 ? d.EVFB[ei,a,r] / VVA[a,r] : DEFAULTVASHR[ei]
+        SVA[ei,a,r] = VVA_fp[a,r] > 0 ? d.EVFP[ei,a,r] / VVA_fp[a,r] : DEFAULTVASHR[ei]
     end
 
-    # ── INTSHR: share of c in total interm. inputs of act. a ───────────────
-    TINTCOM = dropdims(sum(VFB_com, dims=1), dims=1)   # (nA, nR)
+    # ── INTSHR: share of c in total interm. inputs of act. a (GTAPuv7: VFP)──
+    TINTCOM = dropdims(sum(VFP_com, dims=1), dims=1)   # (nA, nR) at producer prices
     INTSHR = zeros(nC, nA, nR)
     for a in 1:nA, r in 1:nR
         denom = max(TINTCOM[a,r], 1e-10)
-        INTSHR[:,a,r] = VFB_com[:,a,r] ./ denom
+        INTSHR[:,a,r] = VFP_com[:,a,r] ./ denom
     end
 
-    # ── FMSHR: share of imports in firm demand for c by act. a ─────────────
+    # ── FMSHR: share of imports in firm demand for c by act. a (GTAPuv7: VFP)
     FMSHR = zeros(nC, nA, nR)
     for c in 1:nC, a in 1:nA, r in 1:nR
-        denom = max(VFB_com[c,a,r], 1e-10)
-        FMSHR[c,a,r] = d.VMFB[c,a,r] / denom
+        denom = max(VFP_com[c,a,r], 1e-10)
+        FMSHR[c,a,r] = d.VMFP[c,a,r] / denom
     end
 
     # ── ENDWMSHR: share of mobile endowment e used by act. a ────────────────
@@ -352,6 +360,31 @@ function compute_derived_v7(d::GTAPDataV7, s::GTAPSetsV7)
     for ei in 1:nE, a in 1:nA, r in 1:nR; FY[r] += d.EVFB[ei,a,r]; end
     FY .-= d.VDEP
 
+    # ── Benchmark tax wedges (purch. price - basic price) ────────────────────
+    PTAX   = d.MAKEB .- d.MAKES              # (nC,nA,nR) output tax
+    ETAX   = d.EVFP  .- d.EVFB              # (nE,nA,nR) factor employment tax
+    DFTAX  = d.VDFP  .- d.VDFB              # (nC,nA,nR) domestic intermediate use tax
+    MFTAX  = d.VMFP  .- d.VMFB              # (nC,nA,nR) imported intermediate use tax
+    DPTAX  = d.VDPP  .- d.VDPB              # (nC,nR)    private dom. consumption tax
+    MPTAX  = d.VMPP  .- d.VMPB              # (nC,nR)    private imp. consumption tax
+    DGTAX  = d.VDGP  .- d.VDGB              # (nC,nR)    gov dom. consumption tax
+    MGTAX  = d.VMGP  .- d.VMGB              # (nC,nR)    gov imp. consumption tax
+    DITAX  = d.VDIP  .- d.VDIB              # (nC,nR)    investment dom. tax
+    MITAX  = d.VMIP  .- d.VMIB              # (nC,nR)    investment imp. tax
+    MTAX   = d.VMSB  .- d.VCIF              # (nC,nR,nR) import tariff tax
+    XTAXD  = d.VFOB  .- d.VXSB              # (nC,nR,nR) export tax
+
+    # Baseline indirect tax revenue by region
+    TAXROUT = [sum(PTAX[:,  :, r]) for r in 1:nR]
+    TAXRFU  = [sum(ETAX[:,  :, r]) for r in 1:nR]
+    TAXRIU  = [sum(DFTAX[:, :, r]) + sum(MFTAX[:, :, r]) for r in 1:nR]
+    TAXRPC  = [sum(DPTAX[:, r])    + sum(MPTAX[:, r])    for r in 1:nR]
+    TAXRGC  = [sum(DGTAX[:, r])    + sum(MGTAX[:, r])    for r in 1:nR]
+    TAXRIC  = [sum(DITAX[:, r])    + sum(MITAX[:, r])    for r in 1:nR]
+    TAXRIMP = [sum(MTAX[:, :, r]) for r in 1:nR]
+    TAXREXP = [sum(XTAXD[:, r, :]) for r in 1:nR]
+    TAXR_IND = TAXROUT .+ TAXRFU .+ TAXRIU .+ TAXRPC .+ TAXRGC .+ TAXRIC .+ TAXRIMP .+ TAXREXP
+
     # ── Investment and capital ───────────────────────────────────────────────
     NETINV    = REGINV .- d.VDEP
     GLOBINV   = sum(NETINV)
@@ -402,6 +435,8 @@ function compute_derived_v7(d::GTAPDataV7, s::GTAPSetsV7)
         PMSHR, GMSHR, IMSHR, CONSHR, GOVSHR, INVSHR,
         ALPHA, sumCALPHA, UELASPRIV, XWCONSHR, APE, EY, EP,
         XSHRPRIV, XSHRGOV, XSHRSAVE, UTILELAS, DPARPRIV, DPARGOV, DPARSAVE, FY,
+        PTAX, ETAX, DFTAX, MFTAX, DPTAX, MPTAX, DGTAX, MGTAX, DITAX, MITAX, MTAX, XTAXD,
+        TAXROUT, TAXRFU, TAXRIU, TAXRPC, TAXRGC, TAXRIC, TAXRIMP, TAXREXP, TAXR_IND,
         NETINV, GLOBINV, INVKERATIO, GRNETRATIO,
         VTFSD, VTMUSE, VTMPROV, VTRPROV, VT, VTUSE,
         VTMUSESHR, VTSUPPSHR, VTFSD_MSH, VCIFCOST, FOBSHR, TRNSHR,
@@ -556,9 +591,10 @@ function gtap_v7_residuals(v, d::GTAPDataV7, s::GTAPSetsV7, C)
                       d.VDEP[r]*(v.pinv[r]+v.kb[r]))
                      for r in 1:nR]
 
-    # E_y: regional income = factor income + indirect taxes (simplified)
-    R[:E_y] = [C.INCOME[r]*v.y[r] - C.FY[r]*v.fincome[r] -
-               100.0*C.INCOME[r]*v.del_indtaxr[r] - (C.INCOME[r]-C.FY[r])*v.y[r] -
+    # E_y: INCOME(r)*y(r) = FY(r)*fincome(r) + 100*INCOME(r)*del_indtaxr(r) + INDTAX(r)*y(r) + INCOME(r)*incomeslack(r)
+    # Equivalently: FY(r)*y(r) = FY(r)*fincome(r) + 100*INCOME(r)*del_indtaxr(r) + INCOME(r)*incomeslack(r)
+    R[:E_y] = [C.FY[r]*v.y[r] - C.FY[r]*v.fincome[r] -
+               100.0*C.INCOME[r]*v.del_indtaxr[r] -
                C.INCOME[r]*v.incomeslack[r]
                for r in 1:nR]
 
@@ -861,25 +897,61 @@ function gtap_v7_residuals(v, d::GTAPDataV7, s::GTAPSetsV7, C)
     R[:E_pcgdswld] = [v.pcgdswld[1] - sum((C.NETINV[r]/max(C.GLOBINV,1e-10))*v.pinv[r] for r in 1:nR)]
 
     # ════════════════════════════════════════════════════════════════════
-    # MODULE 9 – TAX REVENUE (simplified: del_indtaxr only)
+    # MODULE 9 – INDIRECT TAX REVENUE
     # ════════════════════════════════════════════════════════════════════
 
-    # del_indtaxr is treated as a slack in the income equation; here we just
-    # require it to satisfy: INCOME*del_indtaxr ≈ 0 in standard experiments
-    # (Full tax revenue accounting can be added later)
-    R[:E_del_indtaxr] = [v.del_indtaxr[r] for r in 1:nR]
+    # E_del_indtaxr: change in ratio of indirect taxes to INCOME
+    # 100*INCOME*del_dintaxr + TAXR_IND*y = sum of all indirect tax revenue changes
+    # Following GTAPuv7 equations E_del_taxrout/fu/riu/rpc/rgc/ric/rimp/rexp
+    R[:E_del_indtaxr] = [begin
+        # output taxes: MAKEB*to + PTAX*(ps + qca)
+        taxrout = sum(d.MAKEB[c,a,r]*v.to[c,a,r] + C.PTAX[c,a,r]*(v.ps[c,a,r]+v.qca[c,a,r])
+                      for c in 1:nC, a in 1:nA)
+        # factor employment taxes: EVFP*tfe + ETAX*(peb + qfe)
+        taxrfu  = sum(d.EVFP[e,a,r]*v.tfe[e,a,r] + C.ETAX[e,a,r]*(v.peb[e,a,r]+v.qfe[e,a,r])
+                      for e in 1:nE, a in 1:nA)
+        # dom. intermediate use taxes: VDFP*tfd + DFTAX*(pds + qfd)
+        taxriu_d = sum(d.VDFP[c,a,r]*v.tfd[c,a,r] + C.DFTAX[c,a,r]*(v.pds[c,r]+v.qfd[c,a,r])
+                       for c in 1:nC, a in 1:nA)
+        # imp. intermediate use taxes: VMFP*tfm + MFTAX*(pms + qfm)
+        taxriu_m = sum(d.VMFP[c,a,r]*v.tfm[c,a,r] + C.MFTAX[c,a,r]*(v.pms[c,r]+v.qfm[c,a,r])
+                       for c in 1:nC, a in 1:nA)
+        # private consumption taxes
+        taxrpc  = sum(d.VDPP[c,r]*v.tpd[c,r] + C.DPTAX[c,r]*(v.pds[c,r]+v.qpd[c,r]) +
+                      d.VMPP[c,r]*v.tpm[c,r] + C.MPTAX[c,r]*(v.pms[c,r]+v.qpm[c,r])
+                      for c in 1:nC)
+        # government consumption taxes
+        taxrgc  = sum(d.VDGP[c,r]*v.tgd[c,r] + C.DGTAX[c,r]*(v.pds[c,r]+v.qgd[c,r]) +
+                      d.VMGP[c,r]*v.tgm[c,r] + C.MGTAX[c,r]*(v.pms[c,r]+v.qgm[c,r])
+                      for c in 1:nC)
+        # investment demand taxes
+        taxric  = sum(d.VDIP[c,r]*v.tid[c,r] + C.DITAX[c,r]*(v.pds[c,r]+v.qid[c,r]) +
+                      d.VMIP[c,r]*v.tim[c,r] + C.MITAX[c,r]*(v.pms[c,r]+v.qim[c,r])
+                      for c in 1:nC)
+        # import tariff revenue: VMSB*(tm + tms) + MTAX*(pcif + qxs)
+        taxrimp = sum(d.VMSB[c,s,r]*(v.tm[c,r]+v.tms[c,s,r]) +
+                      C.MTAX[c,s,r]*(v.pcif[c,s,r]+v.qxs[c,s,r])
+                      for c in 1:nC, s in 1:nR)
+        # export taxes: VFOB*(tx + txs) + XTAXD*(pds + qxs)
+        taxrexp = sum(d.VFOB[c,r,dd]*(v.tx[c,r]+v.txs[c,r,dd]) +
+                      C.XTAXD[c,r,dd]*(v.pds[c,r]+v.qxs[c,r,dd])
+                      for c in 1:nC, dd in 1:nR)
+        total_rhs = taxrout + taxrfu + taxriu_d + taxriu_m + taxrpc + taxrgc + taxric + taxrimp + taxrexp
+        100.0*C.INCOME[r]*v.del_indtaxr[r] + C.TAXR_IND[r]*v.y[r] - total_rhs
+    end for r in 1:nR]
 
     # ════════════════════════════════════════════════════════════════════
     # MODULE 10 – NUMERAIRE AND WALRAS
     # ════════════════════════════════════════════════════════════════════
 
     # pfactor(r): regional factor price index (for numeraire chain)
-    VENDWREG = [sum(C.VES[iE(e),r] for e in s.ENDW) for r in 1:nR]
+    # GTAPuv7 E_pfactor: VENDWREG(r)*pfactor(r) = sum{e,ENDW,a,ACTS, EVFB(e,a,r)*peb(e,a,r)}
+    # includes ALL endowments (mobile + fixed/capital) using basic-price weights EVFB
+    VENDWREG = [sum(d.EVFB[:,:,r]) for r in 1:nR]
     VENDWWLD = sum(VENDWREG)
 
     R[:E_pfactor] = [VENDWREG[r]*v.pfactor[r] -
-                     sum(C.VES[iE(e),r]*v.pe[iEMS(e),r] for e in s.ENDWMS)
-                     # Fixed endowments do not contribute to numeraire (prices determined otherwise)
+                     sum(d.EVFB[e,a,r]*v.peb[e,a,r] for e in 1:nE, a in 1:nA)
                      for r in 1:nR]
 
     # pfactwld: world factor price index (numeraire)

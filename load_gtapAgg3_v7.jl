@@ -353,8 +353,8 @@ function load_from_zip_v7(zippath::String)
     ESUBQ_raw = _try(zeros(nC, nR), "ESBQ", "ESUBQ")
     ESUBQ   = _reshape_to(ESUBQ_raw, (nC, nR), "ESBQ")
 
-    # ESUBD (dom/imp Armington): stored as ESDC in GTAPAgg3 v7 output
-    ESUBD_raw = _try(nothing, "ESDC", "ESBD", "ESUBD")
+    # ESUBD (dom/imp Armington): RunGTAP reads from "ESBD"; "ESDC" is CEPII alt
+    ESUBD_raw = _try(nothing, "ESBD", "ESDC", "ESUBD")
     ESUBD_raw !== nothing || error("Cannot find dom/imp Armington elasticity (ESDC/ESBD)")
     # May be (nC,nR) → keep as matrix; GTAPDataV7 expects (nC,) vector so average over regions
     ESUBD   = if length(ESUBD_raw) == nC
@@ -401,7 +401,7 @@ function load_from_zip_v7(zippath::String)
         VDGB, VMGB, VDGP, VMGP,
         VDIB, VMIB, VDIP, VMIP,
         MAKES, MAKEB, EVOS, EVFB, EVFP,
-        VDFB, VMFB, VMFP,
+        VDFB, VDFP_arr, VMFB, VMFP,
         VXSB, VFOB, VCIF, VMSB, VST, VTMFSD,
         VKB, VDEP, DPARSUM,
         ESUBT, ESUBC, ESUBVA, ETRAQ, ESUBQ,

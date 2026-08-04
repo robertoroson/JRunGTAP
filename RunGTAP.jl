@@ -34,7 +34,8 @@ include("gtap_euler.jl")        # update_data_euler (multi-step Euler)
 include("gtap_v7.jl")           # GTAPSetsV7, GTAPDataV7, gtap_v7_residuals
 include("gtap_names_v7.jl")     # var_domains / _model_sets / resolve_config for GTAPSetsV7
 include("gtap_pack_v7.jl")      # F_core_v7, make_exog_zero_v7, _endo_specs_v7
-include("gtap_analytical_v7.jl") # build_A_v7
+include("gtap_analytical_v7.jl")          # build_A_v7 (colored FD, pattern cache)
+include("gtap_jacobian_analytical_v7.jl") # build_A_v7_analytical (direct, <1s)
 include("gtap_euler_v7.jl")     # update_data_euler_v7
 include("load_gtapAgg3_v7.jl")  # load_from_zip_v7
 
@@ -184,6 +185,7 @@ function load_data_v7(zippath::String)
         _DATA_CACHE_V7[]    = load_from_zip_v7(zippath)
         _ZIP_CACHE_V7[]     = zippath
         _JACOBIAN_CACHE_V7[] = nothing
+        set_jac_cache_path_v7(zippath)
         s, d, C = _DATA_CACHE_V7[]
         println("  nC=$(length(s.COMM))  nA=$(length(s.ACTS))  nR=$(length(s.REG))  " *
                 "n_endo=$(n_endog_v7(s))")
@@ -201,7 +203,7 @@ function _get_jacobian_v7(d, s, C; rebuild = false)
     if _JACOBIAN_CACHE_V7[] === nothing || rebuild
         println("Building GTAPv7 Jacobian…")
         t0 = time()
-        _JACOBIAN_CACHE_V7[] = build_A_v7(d, s, C)
+        _JACOBIAN_CACHE_V7[] = build_A_v7_analytical(d, s, C)
         println("  done in $(round(time()-t0, digits=1))s   nnz=$(nnz(_JACOBIAN_CACHE_V7[]))")
     else
         println("  (reusing cached v7 Jacobian)")
@@ -347,7 +349,7 @@ function _euler_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
         end
         exog = NamedTuple(k => (k in scalars ? ed[k][1] : ed[k]) for k in keys(make_exog_zero_v7(s)))
 
-        A_cur = build_A_v7(d_cur, s, C_cur)
+        A_cur = build_A_v7_analytical(d_cur, s, C_cur)
         b_cur = -F_core_v7(zeros(n), exog, d_cur, s, C_cur)
         # Drop the last row (E_walras) — it's Walras' law redundancy in the square system
         if size(A_cur, 1) > n; A_cur = A_cur[1:n, :]; b_cur = b_cur[1:n]; end
@@ -385,7 +387,7 @@ function _gragg_pass_v7(shocks, swaps, np::Int, d0::GTAPDataV7, s::GTAPSetsV7, C
         quiet || print("\r  step $step/$np…")
         exog_sub = _make_exog_sub()
 
-        A_cur = build_A_v7(d_cur, s, C_cur)
+        A_cur = build_A_v7_analytical(d_cur, s, C_cur)
         b1    = -F_core_v7(zeros(n), exog_sub, d_cur, s, C_cur)
         if size(A_cur,1) > n; A_cur = A_cur[1:n,:]; b1 = b1[1:n]; end
         A1, b1e, _, _ = apply_swaps_v7(A_cur, b1, swaps, d_cur, s, C_cur)
@@ -395,7 +397,7 @@ function _gragg_pass_v7(shocks, swaps, np::Int, d0::GTAPDataV7, s::GTAPSetsV7, C
         d_mid   = update_data_euler_v7(d_cur, dx_half, s)
         C_mid   = compute_derived_v7(d_mid, s)
 
-        A_mid = build_A_v7(d_mid, s, C_mid)
+        A_mid = build_A_v7_analytical(d_mid, s, C_mid)
         b2    = -F_core_v7(zeros(n), exog_sub, d_mid, s, C_mid)
         if size(A_mid,1) > n; A_mid = A_mid[1:n,:]; b2 = b2[1:n]; end
         A2, b2e, _, _ = apply_swaps_v7(A_mid, b2, swaps, d_mid, s, C_mid)

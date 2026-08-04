@@ -19,11 +19,33 @@
 # =============================================================================
 
 using SparseArrays
+using Serialization
 
 # ── Module-level caches ────────────────────────────────────────────────────────
 # Sparsity pattern (Bool sparse matrix) and column groups from greedy colouring.
-const _JAC_PATTERN_V7 = Ref{Union{Nothing, SparseMatrixCSC{Bool,Int}}}(nothing)
-const _JAC_GROUPS_V7  = Ref{Union{Nothing, Vector{Vector{Int}}}}(nothing)
+# Bump this string whenever the model equations change (forces Jacobian rebuild).
+const JAC_MODEL_VERSION_V7 = "v7.6-pfactor-full-endowments"
+
+const _JAC_PATTERN_V7    = Ref{Union{Nothing, SparseMatrixCSC{Bool,Int}}}(nothing)
+const _JAC_GROUPS_V7     = Ref{Union{Nothing, Vector{Vector{Int}}}}(nothing)
+# Path for the on-disk Jacobian cache (set by load_data_v7 from the zip path).
+const _JAC_CACHE_PATH_V7 = Ref{Union{Nothing, String}}(nothing)
+# Path of the zip file whose data the cached Jacobian was built from.
+const _JAC_SOURCE_ZIP_V7 = Ref{Union{Nothing, String}}(nothing)
+
+"""
+    set_jac_cache_path_v7(zip_path)
+
+Derive and store the cache file path from the data zip path.
+The cache is saved as `<stem>_jacobian_v7.jac` next to the zip file.
+Called automatically by `load_data_v7`.
+"""
+function set_jac_cache_path_v7(zip_path::String)
+    abs_zip = abspath(zip_path)
+    stem = splitext(abs_zip)[1]
+    _JAC_CACHE_PATH_V7[] = stem * "_jacobian_v7.jac"
+    _JAC_SOURCE_ZIP_V7[] = abs_zip
+end
 
 """
 Greedy column colouring of a sparse matrix.
@@ -77,6 +99,29 @@ function build_A_v7(d::GTAPDataV7, s::GTAPSetsV7, C)
     exog  = make_exog_zero_v7(s)
 
     if _JAC_PATTERN_V7[] === nothing
+        # ── Try loading from disk cache first ─────────────────────────────
+        cache_path = _JAC_CACHE_PATH_V7[]
+        zip_path   = _JAC_SOURCE_ZIP_V7[]
+        if cache_path !== nothing && isfile(cache_path)
+            cached = deserialize(cache_path)
+            if length(cached) == 5
+                model_ver, A_cached, pat, groups, saved_mtime = cached
+                current_mtime = mtime(zip_path)
+                if model_ver == JAC_MODEL_VERSION_V7 && saved_mtime == current_mtime
+                    @info "Loading Jacobian from cache: $cache_path  ($(nnz(pat)) nonzeros, $(length(groups)) colour groups)"
+                    _JAC_PATTERN_V7[] = pat
+                    _JAC_GROUPS_V7[]  = groups
+                    return A_cached
+                elseif model_ver != JAC_MODEL_VERSION_V7
+                    @info "Cache stale (model version changed $model_ver → $JAC_MODEL_VERSION_V7): rebuilding Jacobian"
+                else
+                    @info "Cache stale (zip modified): rebuilding Jacobian"
+                end
+            else
+                @info "Cache format outdated: rebuilding Jacobian"
+            end
+        end
+
         # ── First call: full column-by-column pattern discovery ────────────
         e_j  = zeros(n_col)
         e_j[1] = 1.0
@@ -105,6 +150,13 @@ function build_A_v7(d::GTAPDataV7, s::GTAPSetsV7, C)
         _JAC_GROUPS_V7[]  = _greedy_column_coloring(pat)
         ncolors = length(_JAC_GROUPS_V7[])
         @info "Jacobian pattern cached: $(nnz(pat)) nonzeros, $ncolors colour groups (future builds will use compressed FD)"
+        # ── Save to disk cache ────────────────────────────────────────────
+        cache_path = _JAC_CACHE_PATH_V7[]
+        zip_path   = _JAC_SOURCE_ZIP_V7[]
+        if cache_path !== nothing && zip_path !== nothing
+            serialize(cache_path, (JAC_MODEL_VERSION_V7, A, _JAC_PATTERN_V7[], _JAC_GROUPS_V7[], mtime(zip_path)))
+            @info "Jacobian saved to: $cache_path"
+        end
         return A
     end
 

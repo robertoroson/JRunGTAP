@@ -792,8 +792,10 @@ function gtap_residuals(v, d::GTAPData, s::GTAPSets, C; skip_appendix::Bool=fals
                      for r in 1:nR]
 
     # REGIONALINCOME
-    R[:REGIONALINCOME] = [C.INCOME[r]*v.y[r] - C.FY[r]*v.fincome[r] -
-                          100*C.INCOME[r]*v.del_indtaxr[r] - C.INDTAX[r]*v.y[r] -
+    # INCOME(r)*y(r) = FY(r)*fincome(r) + 100*INCOME(r)*del_indtaxr(r) + INDTAX(r)*y(r) + INCOME(r)*incomeslack(r)
+    # Equivalently: FY(r)*y(r) = FY(r)*fincome(r) + 100*INCOME(r)*del_indtaxr(r) + INCOME(r)*incomeslack(r)
+    R[:REGIONALINCOME] = [C.FY[r]*v.y[r] - C.FY[r]*v.fincome[r] -
+                          100*C.INCOME[r]*v.del_indtaxr[r] -
                           C.INCOME[r]*v.incomeslack[r] for r in 1:nR]
 
     # DPARAV

@@ -58,9 +58,15 @@ def read_har(fname):
                 break
             try:
                 rtype = rec2[4:6].decode('ascii').strip()
+                # Full 4-char type for detecting GEMPACK "RESP" binary arrays:
+                # these embed data differently (no standard data records).
+                rtype4 = rec2[4:8].decode('ascii').strip() if n2 >= 8 else rtype
             except Exception:
                 continue
             if rtype not in ('RE', '2R', '2I', '1C'):
+                continue
+            # RESP arrays store data in non-standard format; skip them gracefully.
+            if rtype4 == 'RESP':
                 continue
 
             # ── Record 3: array element info ────────────────────────────
@@ -97,10 +103,20 @@ def read_har(fname):
                 continue
 
             # ── Records 4 … 3+n_named: one per named set (element names) ─
+            # Also collect named-set sizes as a shape fallback for files where
+            # the shape_rec uses a different format (e.g. GEMPACK default.prm).
+            named_set_sizes = []
             for _ in range(n_named):
                 r, rlen = rrec(f)
                 if r is None:
                     break
+                if r is not None and rlen >= 12:
+                    try:
+                        sz = struct.unpack_from('<i', r, 8)[0]
+                        if 0 < sz <= 200_000:
+                            named_set_sizes.append(sz)
+                    except Exception:
+                        pass
 
             # ── Shape record ──────────────────────────────────────────────
             shape_rec, _ = rrec(f)
@@ -115,9 +131,16 @@ def read_har(fname):
                         for i in range(ndim)
                     )
                     if any(s <= 0 or s > 200_000 for s in shape):
-                        continue
+                        # Fall back to named-set sizes (for GEMPACK default.prm format)
+                        if len(named_set_sizes) == ndim:
+                            shape = tuple(named_set_sizes)
+                        else:
+                            continue
                 except Exception:
-                    continue
+                    if len(named_set_sizes) == ndim:
+                        shape = tuple(named_set_sizes)
+                    else:
+                        continue
 
             total = 1
             for s in shape:

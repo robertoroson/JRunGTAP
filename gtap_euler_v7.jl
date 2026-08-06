@@ -48,10 +48,12 @@ function update_data_euler_v7(d::GTAPDataV7, dx, s::GTAPSetsV7)
 
     # ── Intermediate demand ────────────────────────────────────────────────
     VDFB_new = copy(d.VDFB)
+    VDFP_new = copy(d.VDFP)
     VMFB_new = copy(d.VMFB)
     VMFP_new = copy(d.VMFP)
     for c in 1:nC, a in 1:nA, r in 1:nR
         VDFB_new[c,a,r] *= scl(dx.pfd[c,a,r], dx.qfd[c,a,r])
+        VDFP_new[c,a,r] *= scl(dx.pfd[c,a,r], dx.qfd[c,a,r])
         VMFB_new[c,a,r] *= scl(dx.pfm[c,a,r], dx.qfm[c,a,r])
         VMFP_new[c,a,r] *= scl(dx.pfm[c,a,r], dx.qfm[c,a,r])
     end
@@ -107,7 +109,7 @@ function update_data_euler_v7(d::GTAPDataV7, dx, s::GTAPSetsV7)
         VDIB_new, VMIB_new, VDIP_new, VMIP_new,
         MAKES_new, MAKEB_new,
         EVOS_new, EVFB_new, EVFP_new,
-        VDFB_new, VMFB_new, VMFP_new,
+        VDFB_new, VDFP_new, VMFB_new, VMFP_new,
         VXSB_new, VFOB_new, VCIF_new, VMSB_new,
         VST_new, VTMFSD_new,
         VKB_new, VDEP_new, d.DPARSUM,

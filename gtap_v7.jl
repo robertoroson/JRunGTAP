@@ -759,7 +759,8 @@ function gtap_v7_residuals(v, d::GTAPDataV7, s::GTAPSetsV7, C)
                 for m in 1:nM]
 
     # E_qst: regional supply of margin m
-    R[:E_qst] = [v.qst[m,r] - v.qtm[m] + d.ESUBS[m]*(v.pt[m]-v.pds[iC(s.MARG[m]),r])
+    # TABLO: qst = qtm - ESUBS*(pds - pt)  →  residual = qst - qtm + ESUBS*(pds - pt)
+    R[:E_qst] = [v.qst[m,r] - v.qtm[m] + d.ESUBS[m]*(v.pds[iC(s.MARG[m]),r]-v.pt[m])
                  for m in 1:nM, r in 1:nR]
 
     # E_ptrans: transport cost index

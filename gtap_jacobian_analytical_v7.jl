@@ -834,15 +834,16 @@ function build_A_v7_analytical(d::GTAPDataV7, s::GTAPSetsV7, C)
         end
     end
 
-    # E_qst (nM,nR): qst - qtm + ESUBS*(pt - pds[iC(MARG[m]),r]) = 0
+    # E_qst (nM,nR): qst - qtm + ESUBS*(pds[iC(MARG[m]),r] - pt) = 0
+    # TABLO: qst = qtm - ESUBS*(pds - pt)
     for m in 1:nM, r in 1:nR
         row = er(:E_qst, mr(m,r))
         cm  = iC(s.MARG[m])::Int
         e   = d.ESUBS[m]
         ae!(row, :qst, mr(m,r),  1.0)
         ae!(row, :qtm, m,        -1.0)
-        ae!(row, :pt,  m,         e)
-        ae!(row, :pds, cr(cm,r), -e)
+        ae!(row, :pt,  m,        -e)
+        ae!(row, :pds, cr(cm,r),  e)
     end
 
     # ══════════════════════════════════════════════════════════════════════════

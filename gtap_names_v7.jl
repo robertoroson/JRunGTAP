@@ -54,6 +54,7 @@ function var_domains(s::GTAPSetsV7; lowercase::Bool = true)
         :psave       => [R],          # regional savings price
         :rore        => [R],          # expected rate of return
         :ke          => [R],          # expected capital stock growth
+        :pe          => [EMS, R],     # economy-wide mobile/sluggish factor return
     )
 end
 

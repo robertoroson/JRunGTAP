@@ -515,7 +515,7 @@ function _exog_col(name::Symbol, idxs::Vector{Int}, d, s, C)
 end
 
 # Replace column j of a SparseMatrixCSC with a dense/sparse vector
-function _replace_col(A::SparseMatrixCSC{Float64,Int}, j::Int,
+function _replace_col(A::SparseMatrixCSC{Float64,<:Integer}, j::Integer,
                       col::AbstractVector{Float64})
     m, n = size(A)
     rows_new = Int[]; cols_new = Int[]; vals_new = Float64[]

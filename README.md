@@ -18,7 +18,7 @@ The models are described in:
   - **Euler** — multi-step, rebuilds the Jacobian at each sub-step (1st-order accuracy).
   - **Gragg** — modified midpoint method (2nd-order accuracy; ~2× the cost of Euler).
   - **Gragg + Richardson extrapolation** — automatic when `steps` is a multiple of 3 and ≥ 6; runs three Gragg passes at [n, 2n, 3n] steps and extrapolates h²→0 (polynomial order 2, substantially higher effective accuracy).
-- Flexible **closure** via variable swaps in the experiment config file.
+- Flexible **closure** via variable swaps in the experiment config file — supports all standard closures from Burfisher (2021) Table ME 3.4.
 - Exports results to **CSV**.
 - On-screen summary with welfare table (utility, income, CPI, equivalent variation in million USD) and validation checks (Walras' law, income–expenditure balance, factor market clearing).
 
@@ -133,7 +133,48 @@ shock  tm[rice, Japan] = 50.0       # 50 pp tariff on rice imports into Japan
 # set agri = [rice, wheat, grains]
 ```
 
-Variable names, index conventions, and common closure swaps are documented in `variables.txt`.
+Variable names, index conventions, and available closure swaps are documented in `variables.txt` and in the section below.
+
+---
+
+## Closure swaps (v7)
+
+The standard closure is GTAP's default. Any endogenous variable can be fixed (moved to exogenous) by swapping it with an exogenous variable of the same dimension. The syntax in a `.cfg` file is:
+
+```
+swap <endo_var>[indices] <-> <exo_var>[indices]
+swap <endo_var>[indices] <-> <exo_var>[indices] fix_at = <value>   # optional, default 0.0
+```
+
+The table below lists the most common closure swaps, following **Burfisher (2021) Table ME 3.4** (*Introduction to Computable General Equilibrium Models*, Cambridge University Press), with the v7 variable names used in JRunGTAP:
+
+| Closure | Effect | Swap (v7) | Burfisher v6.22 equivalent |
+|---|---|---|---|
+| **Factor unemployment** | Fixes the nominal factor return; lets factor supply adjust | `pe[f, r] <-> qe[f, r]` | `qo(f,r) = pfactreal(f,r)` |
+| **Export quantity control** | Fixes bilateral export volume; endogenises export tax | `qxs[c, r, s] <-> txs[c, r, s]` | `qxs(i,r,s) = txs(i,r,s)` |
+| **Import quantity control** | Fixes bilateral import volume; endogenises bilateral tariff | `qxs[c, s, r] <-> tms[c, s, r]` | `qiw(i,s) = tm(i,s)` |
+| **Insulate domestic production** | Fixes activity output; endogenises export subsidy | `qo[c, r] <-> tx[c, r]` | `qo(i,s) = tx(i,s)` |
+| **Variable import levy** | Fixes domestic/world price ratio; endogenises aggregate import tariff | `pr[c, r] <-> tm[c, r]` | `pr(i,r) = tm(i,r)` |
+| **Balanced government budget** | Fixes indirect tax revenue share; endogenises private consumption tax | `del_indtaxr[r] <-> tpreg[r]` | `tp(r) = del_ttaxr(r)` |
+| **Government consumption change** | Fixes government utility; lets government demand shift absorb the change | `ug[r] <-> dpgov[r]` | `dpgov(r) = ug(r)` |
+| **Fixed savings price** | Fixes regional savings price; lets savings demand shift adjust | `psave[r] <-> dpsave[r]` | `dpsave(r) = DTBALR(r)` |
+
+Multiple swaps can be combined in a single experiment. For example, the unemployment closure for EU regions alongside standard tariff shocks:
+
+```
+model  = v7
+method = gragg
+steps  = 3
+
+shock  tms[Electricity, Taiwan, Italia]  = 10.0
+shock  tms[Electricity, China,  Italia]  =  5.0
+# ... further shocks ...
+
+swap   pe[UnSkLab, Italia]  <-> qe[UnSkLab, Italia]
+swap   pe[UnSkLab, Francia] <-> qe[UnSkLab, Francia]
+```
+
+> **Note on v7 naming**: the aggregate private consumption tax is `tpreg` in v7 (as opposed to `tp` in v6.22). All other variable names in the table follow the v7 convention from Corong et al. (2017).
 
 ---
 

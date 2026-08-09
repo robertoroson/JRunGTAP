@@ -55,6 +55,15 @@ function var_domains(s::GTAPSetsV7; lowercase::Bool = true)
         :rore        => [R],          # expected rate of return
         :ke          => [R],          # expected capital stock growth
         :pe          => [EMS, R],     # economy-wide mobile/sluggish factor return
+        # Burfisher Table ME 3.4 additional closure swaps (v7 equivalents)
+        :del_indtaxr => [R],          # indirect tax revenue — balanced-budget swap (v6: del_ttaxr)
+        :tpreg       => [R],          # aggregate private consumption tax — balanced-budget swap (v6: tp)
+        :qim         => [C, R],       # composite import volume — import quantity control
+        :pr          => [C, R],       # domestic/world price ratio — variable import levy
+        :ug          => [R],          # government utility/expenditure — gov consumption swap
+        # Exogenous demand shifters that can move to endo in Burfisher swaps
+        :dpgov       => [R],          # government demand shift — gov consumption swap
+        :dpsave      => [R],          # savings demand shift — fixed trade balance swap
     )
 end
 

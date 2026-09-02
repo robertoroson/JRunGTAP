@@ -171,6 +171,18 @@ reload_data!() = (_DATA_CACHE[] = nothing; _JACOBIAN_CACHE[] = nothing;
 
 const _DATA_CACHE_V7     = Ref{Union{Nothing,Tuple}}(nothing)
 const _JACOBIAN_CACHE_V7 = Ref{Any}(nothing)
+
+# In the v7 model, technology aggregators (ao, ava, af, afe, aint) are endogenous
+# variables defined by decomposition equations. The exogenous components that users
+# typically shock are the all-dimension variants (aoall, avaall, afall, afeall, aintall).
+# This dict lets users write the familiar GEMPACK names in .cfg files.
+const _V7_TECH_ALIASES = Dict{Symbol,Symbol}(
+    :ao   => :aoall,
+    :ava  => :avaall,
+    :af   => :afall,
+    :afe  => :afeall,
+    :aint => :aintall,
+)
 const _ZIP_CACHE_V7      = Ref{Union{Nothing,String}}(nothing)
 
 """
@@ -305,7 +317,8 @@ function run_gtap_v7(exp::GTAPExperiment, zippath::String; rebuild_jacobian = fa
     for (key, val) in exp.shocks
         m = match(r"^(\w+)\[([0-9,]+)\]$", key)
         m === nothing && (@warn "Cannot parse shock '$key'"; continue)
-        fn = Symbol(m[1]); idxs = parse.(Int, split(m[2], ','))
+        fn = get(_V7_TECH_ALIASES, Symbol(m[1]), Symbol(m[1]))
+        idxs = parse.(Int, split(m[2], ','))
         haskey(exog_dict, fn) ? exog_dict[fn][idxs...] = val :
             @warn "Shock field '$fn' not in v7 exogenous bundle"
     end
@@ -344,7 +357,8 @@ function _euler_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
                   for (k, v) in pairs(make_exog_zero_v7(s)))
         for (key, val) in shocks
             m = match(r"^(\w+)\[([0-9,]+)\]$", key); m === nothing && continue
-            fn = Symbol(m[1]); idxs = parse.(Int, split(m[2], ','))
+            fn = get(_V7_TECH_ALIASES, Symbol(m[1]), Symbol(m[1]))
+            idxs = parse.(Int, split(m[2], ','))
             haskey(ed, fn) && (ed[fn][idxs...] = val / steps)
         end
         exog = NamedTuple(k => (k in scalars ? ed[k][1] : ed[k]) for k in keys(make_exog_zero_v7(s)))
@@ -377,7 +391,8 @@ function _gragg_pass_v7(shocks, swaps, np::Int, d0::GTAPDataV7, s::GTAPSetsV7, C
                   for (k, v) in pairs(make_exog_zero_v7(s)))
         for (key, val) in shocks
             m = match(r"^(\w+)\[([0-9,]+)\]$", key); m === nothing && continue
-            fn = Symbol(m[1]); idxs = parse.(Int, split(m[2], ','))
+            fn = get(_V7_TECH_ALIASES, Symbol(m[1]), Symbol(m[1]))
+            idxs = parse.(Int, split(m[2], ','))
             haskey(ed, fn) && (ed[fn][idxs...] = val / np)
         end
         NamedTuple(k => (k in scalars ? ed[k][1] : ed[k]) for k in keys(make_exog_zero_v7(s)))

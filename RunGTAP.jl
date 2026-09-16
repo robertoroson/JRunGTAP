@@ -905,6 +905,86 @@ function export_results(sol::GTAPSolution, filename::String;
 end
 
 """
+    export_results(sol::GTAPSolutionV7, filename; variables, skip_zeros, digits)
+
+Write v7 simulation results to CSV with columns: experiment, variable, indices, pct_change.
+"""
+function export_results(sol::GTAPSolutionV7, filename::String;
+                        variables  :: Union{Nothing,Vector{Symbol}} = nothing,
+                        skip_zeros :: Bool = true,
+                        digits     :: Int  = 6)
+    specs    = _endo_specs_v7(sol.s)
+    vars     = variables === nothing ? [nm for (nm, _) in specs] : variables
+    dom_orig = var_domains_orig(sol.s)
+
+    max_dims = maximum(length(v) for v in values(dom_orig); init = 4)
+
+    function idx_names(nm::Symbol, idx::CartesianIndex)
+        t = Tuple(idx)
+        if haskey(dom_orig, nm)
+            sets = dom_orig[nm]
+            length(sets) == length(t) && return [sets[d][t[d]] for d in eachindex(sets)]
+        end
+        return [string(i) for i in t]
+    end
+
+    pad(v) = vcat(v, fill("", max_dims - length(v)))
+
+    rows = 0
+    open(filename, "w") do io
+        dim_headers = join(["dim$i" for i in 1:max_dims], ",")
+        println(io, "experiment,variable,", dim_headers, ",pct_change")
+        expname = sol.experiment.name
+
+        for nm in vars
+            haskey(dom_orig, nm) || continue
+            try
+                arr = get_result_v7(sol, nm)
+                for idx in CartesianIndices(arr)
+                    v = round(arr[idx], digits = digits)
+                    skip_zeros && iszero(v) && continue
+                    println(io, expname, ",", nm, ",",
+                            join(pad(idx_names(nm, idx)), ","), ",", v)
+                    rows += 1
+                end
+            catch
+            end
+        end
+
+        # Swapped-in variables
+        for (j, spec) in sort(collect(sol.swap_in))
+            v = round(sol.x_endo[j], digits = digits)
+            skip_zeros && iszero(v) && continue
+            nm_sym, idxs = _parse_varspec_v7(spec)
+            names = if haskey(dom_orig, nm_sym)
+                sets = dom_orig[nm_sym]
+                length(sets) == length(idxs) ?
+                    [sets[d][idxs[d]] for d in eachindex(sets)] :
+                    [string(i) for i in idxs]
+            else
+                [string(i) for i in idxs]
+            end
+            println(io, expname, ",swapped_in,",
+                    join(pad([string(nm_sym); names]), ","), ",", v)
+            rows += 1
+        end
+
+        # EV (mn USD)
+        u_v = try get_result_v7(sol, :u) catch; nothing end
+        if u_v !== nothing
+            ev = sol.C.INCOME .* u_v ./ 100
+            for r in 1:length(sol.s.REG)
+                v = round(ev[r], digits = digits)
+                skip_zeros && iszero(v) && continue
+                println(io, expname, ",EV_mn_USD,", join(pad([sol.s.REG[r]]), ","), ",", v)
+                rows += 1
+            end
+        end
+    end
+    println("Exported $rows non-zero entries → $filename")
+end
+
+"""
     show_results(sol)
 
 Print a general-purpose summary of simulation results:

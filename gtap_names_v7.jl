@@ -88,6 +88,8 @@ function _model_sets(s::GTAPSetsV7)
     )
 end
 
+var_domains_orig(s::GTAPSetsV7) = var_domains(s; lowercase = false)
+
 function resolve_config(raw_shocks,
                         raw_swaps,
                         user_sets ::Dict{String,Vector{String}},

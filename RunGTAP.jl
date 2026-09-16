@@ -819,6 +819,8 @@ function get_result(sol::GTAPSolution, name::Symbol)
         nm_out, _ = _parse_varspec(spec_out)
         nm_out == name && return fix_val
     end
+    derived = gtap_derived_v62(sol)
+    haskey(derived, name) && return derived[name]
     return 0.0
 end
 
@@ -891,19 +893,189 @@ function export_results(sol::GTAPSolution, filename::String;
             rows += 1
         end
 
-        # EV (mn USD): post-processed from u and benchmark INCOME
-        u_v = try get_variable(sol.x_endo, :u, sol.s) catch; nothing end
-        if u_v !== nothing
-            ev = sol.C.INCOME .* u_v ./ 100
-            for r in 1:length(sol.s.REG)
-                v = round(ev[r], digits = digits)
+        # Derived / reporting aggregates
+        derived = gtap_derived_v62(sol)
+        for (nm, arr) in sort(collect(derived); by = x -> string(x[1]))
+            haskey(dom_orig, nm) || continue
+            for idx in CartesianIndices(arr)
+                v = round(arr[idx], digits = digits)
                 skip_zeros && iszero(v) && continue
-                println(io, expname, ",EV_mn_USD,", join(pad([sol.s.REG[r]]), ","), ",", v)
+                println(io, expname, ",", nm, ",",
+                        join(pad(idx_names(nm, idx)), ","), ",", v)
                 rows += 1
             end
         end
     end
     println("Exported $rows non-zero entries → $filename")
+end
+
+"""
+    gtap_derived_v62(sol) → Dict{Symbol, Array}
+
+Compute derived reporting variables from a GTAPSolution (v6.2) — trade indices,
+GDP, terms of trade, factor price ratios, EV, etc.
+Returns a Dict of Symbol → Array (all percentage-change form).
+"""
+function gtap_derived_v62(sol::GTAPSolution)
+    s = sol.s;  d = sol.d;  C = sol.C
+    nT = length(s.TRAD_COMM);  nP = length(s.PROD_COMM)
+    nR = length(s.REG);        nE = length(s.ENDW_COMM)
+    nM = length(s.MARG_COMM)
+
+    _get(nm) = try get_result(sol, nm) catch; nothing end
+
+    _wsumR(W, X) = sum(W .* X) / max(sum(W), 1e-30)
+    _wsum1(W, X) = [_wsumR(W[:,r], X[:,r]) for r in 1:nR]
+
+    out = Dict{Symbol, Array}()
+
+    pfob  = _get(:pfob)   # (nT, nR, nR)
+    pcif  = _get(:pcif)   # (nT, nR, nR)
+    qxs   = _get(:qxs)    # (nT, nR, nR)
+    qva_v = _get(:qva)    # (nP, nR)
+    p     = _get(:p)      # (nR,)
+    yp    = _get(:yp)     # (nR,)
+    yg    = _get(:yg)     # (nR,)
+    pfe_v = _get(:pfe)    # (nE, nP, nR)
+    y     = _get(:y)      # (nR,)
+    u_v   = _get(:u)      # (nR,)
+    pcgds = _get(:pcgds)  # (nR,)
+    qcgds = _get(:qcgds)  # (nR,)
+
+    # VFOB_r[t,r] = total FOB exports of t from r (sum over destinations)
+    VFOB_r = dropdims(sum(d.VXWD, dims=3), dims=3)  # (nT, nR)
+    # VCIF_r[t,r] = total CIF imports of t into r (sum over sources)
+    VCIF_r = dropdims(sum(d.VIWS, dims=2), dims=2)  # (nT, nR)
+
+    if pfob !== nothing && qxs !== nothing
+        # ── Export price/volume indices ────────────────────────────────────
+        pxw = zeros(nT, nR);  qxw = zeros(nT, nR)
+        for t in 1:nT, r in 1:nR
+            w = d.VXWD[t,r,:]
+            sw = max(sum(w), 1e-30)
+            pxw[t,r] = sum(w .* pfob[t,r,:]) / sw
+            qxw[t,r] = sum(w .* qxs[t,r,:])  / sw
+        end
+        out[:pxw] = pxw;  out[:qxw] = qxw
+        out[:vxwfob] = pxw .+ qxw
+
+        pxwreg = [_wsumR(VFOB_r[:,r], pxw[:,r]) for r in 1:nR]
+        qxwreg = [_wsumR(VFOB_r[:,r], qxw[:,r]) for r in 1:nR]
+        out[:pxwreg] = pxwreg;  out[:qxwreg] = qxwreg
+        out[:vxwreg] = pxwreg .+ qxwreg
+
+        VFOB_t = vec(sum(VFOB_r, dims=2))
+        out[:pxwcom] = [_wsumR(VFOB_r[t,:], pxw[t,:]) for t in 1:nT]
+        out[:qxwcom] = [_wsumR(VFOB_r[t,:], qxw[t,:]) for t in 1:nT]
+        out[:vxwcom] = out[:pxwcom] .+ out[:qxwcom]
+
+        # ── World output / price index ─────────────────────────────────────
+        VDSA = try
+            dropdims(sum(d.VXMD, dims=3), dims=3)  # (nT, nR) dom sales
+        catch
+            nothing
+        end
+        qds_v = _get(:qds)
+        pds_v = try _get(:pr) catch; nothing end   # pr ≈ domestic price in v6.2
+        if qds_v !== nothing && VDSA !== nothing
+            VSALES = VFOB_r .+ VDSA
+            qow_t = zeros(nT)
+            pw_t  = zeros(nT)
+            for t in 1:nT
+                w_exp = VFOB_r[t,:]
+                w_dom = VDSA[t,:]
+                W = w_exp .+ w_dom
+                sw = max(sum(W), 1e-30)
+                qow_t[t] = (sum(w_exp .* qxwreg) + sum(w_dom .* qds_v[t,:])) / sw
+                if pds_v !== nothing
+                    pw_t[t] = (sum(w_exp .* pxwreg) + sum(w_dom .* pds_v[t,:])) / sw
+                end
+            end
+            out[:qow]    = qow_t
+            out[:pw]     = pw_t
+            out[:valuew] = pw_t .+ qow_t
+        end
+    end
+
+    if pcif !== nothing && qxs !== nothing
+        # ── Import price/volume indices ────────────────────────────────────
+        pmw = zeros(nT, nR);  qmw = zeros(nT, nR)
+        for t in 1:nT, r in 1:nR
+            w = d.VIWS[t,:,r]
+            sw = max(sum(w), 1e-30)
+            pmw[t,r] = sum(w .* pcif[t,:,r]) / sw
+            qmw[t,r] = sum(w .* qxs[t,:,r])  / sw
+        end
+        out[:pmw] = pmw;  out[:qmw] = qmw
+        out[:vmwcif] = pmw .+ qmw
+
+        pmwreg = [_wsumR(VCIF_r[:,r], pmw[:,r]) for r in 1:nR]
+        qmwreg = [_wsumR(VCIF_r[:,r], qmw[:,r]) for r in 1:nR]
+        out[:pmwreg] = pmwreg;  out[:qmwreg] = qmwreg
+        out[:vmwreg] = pmwreg .+ qmwreg
+
+        out[:pmwcom] = [_wsumR(VCIF_r[t,:], pmw[t,:]) for t in 1:nT]
+        out[:qmwcom] = [_wsumR(VCIF_r[t,:], qmw[t,:]) for t in 1:nT]
+        out[:vmwcom] = out[:pmwcom] .+ out[:qmwcom]
+    end
+
+    if haskey(out, :vxwfob) && haskey(out, :vmwcif)
+        del_tbal  = zeros(nR);  del_tbalc = zeros(nT, nR)
+        for r in 1:nR, t in 1:nT
+            dX = VFOB_r[t,r] * out[:vxwfob][t,r] / 100.0
+            dM = VCIF_r[t,r] * out[:vmwcif][t,r] / 100.0
+            del_tbalc[t,r] = dX - dM
+            del_tbal[r]   += del_tbalc[t,r]
+        end
+        out[:del_tbal]  = del_tbal
+        out[:del_tbalc] = del_tbalc
+        out[:del_tbalry] = del_tbal ./ max(sum(C.INCOME), 1e-10) .* 100.0
+    end
+
+    if haskey(out, :pxwreg) && haskey(out, :pmwreg)
+        out[:psw] = copy(out[:pxwreg])
+        out[:pdw] = copy(out[:pmwreg])
+        out[:tot] = out[:pxwreg] .- out[:pmwreg]
+    end
+
+    if yp !== nothing && yg !== nothing && pcgds !== nothing && qcgds !== nothing &&
+       haskey(out, :pxwreg) && haskey(out, :pmwreg)
+        vgdp = zeros(nR)
+        for r in 1:nR
+            VFOB_tot = sum(VFOB_r[:,r])
+            VCIF_tot = sum(VCIF_r[:,r])
+            NX_base  = VFOB_tot - VCIF_tot
+            dC  = C.PRIVEXP[r] * yp[r]    / 100.0
+            dG  = C.GOVEXP[r]  * yg[r]    / 100.0
+            dI  = C.REGINV[r]  * (pcgds[r] + qcgds[r]) / 100.0
+            dX  = VFOB_tot * (out[:pxwreg][r] + out[:qxwreg][r]) / 100.0
+            dM  = VCIF_tot * (out[:pmwreg][r] + out[:qmwreg][r]) / 100.0
+            dGDP = dC + dG + dI + dX - dM
+            gdp_base = C.PRIVEXP[r] + C.GOVEXP[r] + C.REGINV[r] + NX_base
+            vgdp[r] = gdp_base > 1e-10 ? dGDP / gdp_base * 100.0 : 0.0
+        end
+        out[:vgdp] = vgdp
+        p !== nothing && (out[:pgdp] = copy(p))
+        haskey(out, :pgdp) && (out[:qgdp] = vgdp .- out[:pgdp])
+    end
+
+    if pfe_v !== nothing && p !== nothing
+        pfactreal = zeros(nE, nP, nR)
+        for e in 1:nE, pr in 1:nP, r in 1:nR
+            pfactreal[e,pr,r] = pfe_v[e,pr,r] - p[r]
+        end
+        out[:pfactreal] = pfactreal
+    end
+
+    qva_v !== nothing && (out[:compvalad] = copy(qva_v))
+
+    if u_v !== nothing
+        out[:EV]       = C.INCOME .* u_v ./ 100.0
+        out[:ueprivev] = copy(C.UELASPRIV)
+        y !== nothing && (out[:yev] = copy(y))
+    end
+
+    out
 end
 
 """

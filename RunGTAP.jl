@@ -479,6 +479,8 @@ function get_result_v7(sol::GTAPSolutionV7, name::Symbol)
         nm_out, _ = _parse_varspec(spec_out)
         nm_out == name && return fix_val
     end
+    derived = gtap_derived_v7(sol)
+    haskey(derived, name) && return derived[name]
     return 0.0
 end
 

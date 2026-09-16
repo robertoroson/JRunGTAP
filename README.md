@@ -29,6 +29,7 @@ Version 7 introduces several key model extensions relative to v6.2:
 - **Additional nesting**: composite intermediates with ESUBC (substitution among intermediates) and ESUBT (VA vs. intermediates).
 - **Activity-specific taxes**: output (`to`), endowment income (`tinc`), and firm-demand (`tfe`) taxes.
 - **Government CES demand**: substitution among government expenditure items with elasticity ESUBG(r).
+- **Technology decomposition**: `afe`, `ao`, `ava`, `af`, and `aint` are *endogenous* in v7 — each is defined by an equation that sums component shifters (sector, region, all). The exogenous component to shock is the `*all` variant. JRunGTAP handles this transparently: writing `shock afe[Capital, ACTS, Taiwan] = -5.0` in a `.cfg` file automatically applies the shock to `afeall` (see [Technology shocks (v7)](#technology-shocks-v7) below).
 
 ---
 
@@ -133,7 +134,34 @@ shock  tm[rice, Japan] = 50.0       # 50 pp tariff on rice imports into Japan
 # set agri = [rice, wheat, grains]
 ```
 
-Variable names, index conventions, and available closure swaps are documented in `variables.txt` and in the section below.
+Variable names, index conventions, and available closure swaps are documented in `variables.txt` and in the sections below.
+
+---
+
+## Technology shocks (v7)
+
+In GTAP v7 the technology variables `afe`, `ao`, `ava`, `af`, and `aint` are **endogenous**: each is defined by a decomposition equation that sums component shifters:
+
+| User-friendly name | v7 equation | Exogenous component to shock |
+|---|---|---|
+| `afe[e, a, r]` | `afecom[e] + afesec[a] + afereg[r] + afeall[e,a,r]` | `afeall` |
+| `ao[a, r]` | `aosec[a] + aoreg[r] + aoall[a,r]` | `aoall` |
+| `ava[a, r]` | `avasec[a] + avareg[r] + avaall[a,r]` | `avaall` |
+| `af[c, a, r]` | `afcom[c] + afsec[a] + afreg[r] + afall[c,a,r]` | `afall` |
+| `aint[a, r]` | `aintsec[a] + aintreg[r] + aintall[a,r]` | `aintall` |
+
+**You do not need to know this.** JRunGTAP transparently maps the user-friendly name to the correct exogenous field. Write shocks using the short name:
+
+```
+shock  afe[Capital, ACTS, Taiwan]    = -5.0   # 5% capital productivity decline in all Taiwan sectors
+shock  ao[Computer, Taiwan]          = -3.0   # 3% output tech decline in Taiwan Computer sector
+shock  ava[Computer, Taiwan]         =  2.0   # 2% value-added tech gain
+shock  aint[MacchIndus, Germania]    = -1.0   # 1% intermediate-input efficiency loss
+```
+
+The set `ACTS` expands to all activities. Named elements, model sets, and user-defined sets all work as in any other shock.
+
+> **Background**: in v6.2 these variables were exogenous and could be shocked directly. In v7 the decomposition allows independent control of sector-neutral, region-neutral, and fully-specific tech change; only the `*all` component (the fully-specific shifter) is exogenous in the standard closure.
 
 ---
 

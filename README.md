@@ -19,7 +19,7 @@ The models are described in:
   - **Gragg** — modified midpoint method (2nd-order accuracy; ~2× the cost of Euler).
   - **Gragg + Richardson extrapolation** — automatic when `steps` is a multiple of 3 and ≥ 6; runs three Gragg passes at [n, 2n, 3n] steps and extrapolates h²→0 (polynomial order 2, substantially higher effective accuracy).
 - Flexible **closure** via variable swaps in the experiment config file — supports all standard closures from Burfisher (2021) Table ME 3.4.
-- Exports results to **CSV**.
+- Exports results to **CSV** — all ~80 endogenous variables plus 36 derived reporting aggregates (GDP, trade value indices, terms of trade, factor price ratios, equivalent variation, etc.), matching the RunGTAP Results tab output.
 - On-screen summary with welfare table (utility, income, CPI, equivalent variation in million USD) and validation checks (Walras' law, income–expenditure balance, factor market clearing).
 
 ### GTAP v7 structural additions
@@ -257,6 +257,74 @@ The on-screen summary reports, for each region:
 - `EV (mn USD)` — equivalent variation in million USD at benchmark prices, computed as `EV[r] = INCOME[r] × u[r] / 100` (exact for Johansen; a good approximation for Euler/Gragg).
 
 A **WORLD** row shows the sum of regional EVs (global welfare effect).
+
+---
+
+## CSV output (v7)
+
+`export_results(sol, "name.csv")` writes a file with columns:
+
+```
+experiment, variable, dim1, dim2, dim3, dim4, pct_change
+```
+
+All values are percentage changes (the linearised model's native unit). Non-zero entries only are written by default (`skip_zeros=true`). The file covers three classes of variables:
+
+### 1. Endogenous solution variables (~80 variables)
+
+All variables solved as part of the GTAPv7 system. Key groups:
+
+| Group | Variables |
+|---|---|
+| Firm quantities | `qo`, `qva`, `qint`, `qfa`, `qfe`, `qfd`, `qfm`, `qca` |
+| Firm prices | `po`, `pva`, `pint`, `pfa`, `pfe`, `pfd`, `pfm`, `pca`, `pb`, `ps` |
+| Commodity supply | `qc`, `pds`, `qds` |
+| Income & welfare | `y`, `yp`, `yg`, `u`, `up`, `ug`, `p`, `ppriv`, `pgov` |
+| Final demand — private | `qpa`, `qpd`, `qpm`, `ppa`, `ppd`, `ppm` |
+| Final demand — government | `qga`, `qgd`, `qgm`, `pga`, `pgd`, `pgm` |
+| Final demand — investment | `qia`, `qid`, `qim`, `pia`, `pid`, `pim`, `qinv`, `pinv`, `qsave`, `psave` |
+| Trade | `qxs`, `qms`, `pms`, `pfob`, `pcif`, `pmds`, `pr`, `qst`, `pt` |
+| Endowments | `pe`, `pes`, `peb`, `qes`, `rental` |
+| Capital dynamics | `ke`, `kb`, `rorc`, `rore` |
+| Technology | `ao`, `ava`, `afa`, `afe`, `aint` |
+| Tax instruments (effective) | `tpd`, `tpm` |
+
+### 2. Derived reporting aggregates (36 variables)
+
+Computed post-solution by `gtap_derived_v7`, matching the RunGTAP Results tab:
+
+| Group | Variables | Dimensions | Description |
+|---|---|---|---|
+| Export price & volume | `pxw`, `qxw`, `vxwfob` | COMM × REG | Commodity export price, volume, FOB value (% ch.) |
+| Regional export aggregates | `pxwreg`, `qxwreg`, `vxwreg` | REG | Regional export price, volume, value |
+| World export aggregates | `pxwcom`, `qxwcom`, `vxwcom` | COMM | World export price, volume, value by commodity |
+| Import price & volume | `pmw`, `qmw`, `vmwcif` | COMM × REG | Commodity import price, volume, CIF value (% ch.) |
+| Regional import aggregates | `pmwreg`, `qmwreg`, `vmwreg` | REG | Regional import price, volume, value |
+| World import aggregates | `pmwcom`, `qmwcom`, `vmwcom` | COMM | World import price, volume, value by commodity |
+| World commodity | `pw`, `qow`, `valuew` | COMM | World price, supply quantity, supply value |
+| Trade balance | `del_tbal`, `del_tbalc`, `del_tbalry` | REG / COMM×REG / REG | Dollar change in X−M; by commodity; as % of world income |
+| Terms of trade | `psw`, `pdw`, `tot` | REG | Export price index, import price index, terms of trade |
+| GDP | `vgdp`, `pgdp`, `qgdp` | REG | Nominal GDP, deflator (CPI), real GDP |
+| Factor prices | `pfactreal` | ENDW × ACTS × REG | Factor return relative to CPI |
+| Factor prices | `pebfactreal` | ENDWMS × REG | Mobile/sluggish return relative to CPI |
+| Value added | `compvalad` | ACTS × REG | Composition of value added (= `qva`) |
+| Welfare | `EV` | REG | Equivalent variation, mn USD |
+| Welfare | `ueprivev`, `yev` | REG | EV calculation components |
+
+> **Note**: `vgdp`, `pxwfob`, etc. are percentage changes, not dollar amounts. `del_tbal` and `EV` are dollar changes (mn USD). `del_tbalry` is a ratio (%).
+
+### 3. Swapped-in variables
+
+Any variable moved to endogenous by a closure swap is written as `swapped_in` rows, with the variable name in `dim1`.
+
+### Programmatic access to derived aggregates
+
+```julia
+derived = gtap_derived_v7(sol)   # Dict{Symbol, Array}
+tot     = derived[:tot]          # terms of trade by region  (nR,)
+qgdp    = derived[:qgdp]         # real GDP by region        (nR,)
+vxwfob  = derived[:vxwfob]       # FOB export value by (c,r) (nC × nR)
+```
 
 ---
 

@@ -19,7 +19,7 @@ The models are described in:
   - **Gragg** — modified midpoint method (2nd-order accuracy; ~2× the cost of Euler).
   - **Gragg + Richardson extrapolation** — automatic when `steps` is a multiple of 3 and ≥ 6; runs three Gragg passes at [n, 2n, 3n] steps and extrapolates h²→0 (polynomial order 2, substantially higher effective accuracy).
 - Flexible **closure** via variable swaps in the experiment config file — supports all standard closures from Burfisher (2021) Table ME 3.4.
-- Exports results to **CSV** — all ~80 endogenous variables plus 36 derived reporting aggregates (GDP, trade value indices, terms of trade, factor price ratios, equivalent variation, etc.), matching the RunGTAP Results tab output.
+- Exports results to **CSV** — all endogenous variables plus derived reporting aggregates (GDP, trade value indices, terms of trade, factor price ratios, equivalent variation, etc.) for both v6.2 and v7, matching the RunGTAP Results tab output.
 - On-screen summary with welfare table (utility, income, CPI, equivalent variation in million USD) and validation checks (Walras' law, income–expenditure balance, factor market clearing).
 
 ### GTAP v7 structural additions
@@ -288,7 +288,7 @@ A **WORLD** row shows the sum of regional EVs (global welfare effect).
 
 ---
 
-## CSV output (v7)
+## CSV output
 
 `export_results(sol, "name.csv")` writes a file with columns:
 
@@ -298,9 +298,11 @@ experiment, variable, dim1, dim2, dim3, dim4, pct_change
 
 All values are percentage changes (the linearised model's native unit). Non-zero entries only are written by default (`skip_zeros=true`). The file covers three classes of variables:
 
-### 1. Endogenous solution variables (~80 variables)
+### 1. Endogenous solution variables
 
-All variables solved as part of the GTAPv7 system. Key groups:
+All variables solved as part of the GTAP system.
+
+**v7 key groups (~80 variables):**
 
 | Group | Variables |
 |---|---|
@@ -317,9 +319,11 @@ All variables solved as part of the GTAPv7 system. Key groups:
 | Technology | `ao`, `ava`, `afa`, `afe`, `aint` |
 | Tax instruments (effective) | `tpd`, `tpm` |
 
-### 2. Derived reporting aggregates (36 variables)
+**v6.2 key groups:** same trade, welfare, and firm modules with v6.2 variable names (`qp`, `qg`, `qcgds`/`pcgds` for investment, `pfe`/`qfe` for factor demands, `pmes_slug`/`qoes_slug` for sluggish endowments).
 
-Computed post-solution by `gtap_derived_v7`, matching the RunGTAP Results tab:
+### 2. Derived reporting aggregates (37 variables, both versions)
+
+Computed post-solution by `gtap_derived_v7` / `gtap_derived_v62`, matching the RunGTAP Results tab. The same set of variables is available for both model versions; dimension names follow the model's own sets (COMM/REG for v7, TRAD_COMM/REG for v6.2).
 
 | Group | Variables | Dimensions | Description |
 |---|---|---|---|
@@ -333,13 +337,13 @@ Computed post-solution by `gtap_derived_v7`, matching the RunGTAP Results tab:
 | Trade balance | `del_tbal`, `del_tbalc`, `del_tbalry` | REG / COMM×REG / REG | Dollar change in X−M; by commodity; as % of world income |
 | Terms of trade | `psw`, `pdw`, `tot` | REG | Export price index, import price index, terms of trade |
 | GDP | `vgdp`, `pgdp`, `qgdp` | REG | Nominal GDP, deflator (CPI), real GDP |
-| Factor prices | `pfactreal` | ENDW × ACTS × REG | Factor return relative to CPI |
-| Factor prices | `pebfactreal` | ENDWMS × REG | Mobile/sluggish return relative to CPI |
+| Factor prices | `pfactreal` | ENDW × ACTS × REG | Factor return relative to CPI (v7: uses `peb`; v6.2: uses `pfe`) |
+| Factor prices | `pebfactreal` | ENDWMS × REG | Mobile/sluggish return relative to CPI (v7 only) |
 | Value added | `compvalad` | ACTS × REG | Composition of value added (= `qva`) |
 | Welfare | `EV` | REG | Equivalent variation, mn USD |
 | Welfare | `ueprivev`, `yev` | REG | EV calculation components |
 
-> **Note**: `vgdp`, `pxwfob`, etc. are percentage changes, not dollar amounts. `del_tbal` and `EV` are dollar changes (mn USD). `del_tbalry` is a ratio (%).
+> **Note**: `vgdp`, `vxwfob`, etc. are percentage changes, not dollar amounts. `del_tbal` and `EV` are dollar changes (mn USD). `del_tbalry` is a ratio (%).
 
 ### 3. Swapped-in variables
 
@@ -347,11 +351,25 @@ Any variable moved to endogenous by a closure swap is written as `swapped_in` ro
 
 ### Programmatic access to derived aggregates
 
+Derived aggregates are accessible via `get_result` / `get_result_v7` exactly like any endogenous variable:
+
 ```julia
-derived = gtap_derived_v7(sol)   # Dict{Symbol, Array}
-tot     = derived[:tot]          # terms of trade by region  (nR,)
-qgdp    = derived[:qgdp]         # real GDP by region        (nR,)
-vxwfob  = derived[:vxwfob]       # FOB export value by (c,r) (nC × nR)
+# v7
+qxw  = get_result_v7(sol7, :qxw)   # (nC × nR) export volume index
+tot  = get_result_v7(sol7, :tot)   # (nR,)     terms of trade
+EV   = get_result_v7(sol7, :EV)    # (nR,)     equivalent variation, mn USD
+
+# v6.2
+qxw  = get_result(sol, :qxw)       # (nT × nR) export volume index
+qgdp = get_result(sol, :qgdp)      # (nR,)     real GDP
+EV   = get_result(sol, :EV)        # (nR,)     equivalent variation, mn USD
+```
+
+Or access the full dict directly:
+
+```julia
+derived7  = gtap_derived_v7(sol7)   # Dict{Symbol, Array}  (v7)
+derived62 = gtap_derived_v62(sol)   # Dict{Symbol, Array}  (v6.2)
 ```
 
 ---

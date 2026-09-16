@@ -12,9 +12,11 @@ function var_domains(s::GTAPSetsV7; lowercase::Bool = true)
     E   = _t(s.ENDW)
     EF  = _t(s.ENDWF)
     EMS = _t(s.ENDWMS)
+    EC  = _t(s.ENDWC)
     M   = _t(s.MARG)
 
     Dict{Symbol, Vector{Vector{String}}}(
+        # ── Policy instruments (exogenous in standard closure) ─────────────────
         :tm          => [C, R],
         :tms         => [C, R, R],
         :tx          => [C, R],
@@ -25,15 +27,18 @@ function var_domains(s::GTAPSetsV7; lowercase::Bool = true)
         :tinc        => [E, A, R],
         :tfe         => [E, A, R],
         :tf          => [E, A, R],
-        :tpd         => [C, R],
-        :tpm         => [C, R],
         :tgd         => [C, R],
         :tgm         => [C, R],
+        :tid         => [C, R],
+        :tim         => [C, R],
         :tp          => [R],
+        :tpreg       => [R],
+        # ── Shifters / exogenous demand ────────────────────────────────────────
         :ao          => [A, R],
         :aint        => [A, R],
         :ava         => [A, R],
         :af          => [C, A, R],
+        :afa         => [C, A, R],
         :afe         => [E, A, R],
         :ams         => [C, R, R],
         :atmfsd      => [M, C, R, R],
@@ -45,25 +50,104 @@ function var_domains(s::GTAPSetsV7; lowercase::Bool = true)
         :pfactwld    => [String[]],
         :qe          => [EMS, R],
         :qesf        => [EF, A, R],
+        :dpgov       => [R],
+        :dpsave      => [R],
+        :dppriv      => [R],
+        # ── Firm-level quantities and prices ───────────────────────────────────
+        :qo          => [A, R],
+        :po          => [A, R],
+        :qint        => [A, R],
+        :pint        => [A, R],
+        :qva         => [A, R],
+        :pva         => [A, R],
+        :pb          => [A, R],
+        :qfa         => [C, A, R],
+        :pfa         => [C, A, R],
+        :qfe         => [E, A, R],
+        :pfe         => [E, A, R],
+        :qfd         => [C, A, R],
+        :pfd         => [C, A, R],
+        :qfm         => [C, A, R],
+        :pfm         => [C, A, R],
+        # ── Commodity supply ──────────────────────────────────────────────────
+        :qca         => [C, A, R],
+        :pca         => [C, A, R],
+        :ps          => [C, A, R],
+        :qc          => [C, R],
+        :pds         => [C, R],
+        # ── Income and welfare ────────────────────────────────────────────────
+        :y           => [R],
+        :yp          => [R],
+        :yg          => [R],
+        :del_indtaxr => [R],
+        :u           => [R],
+        :up          => [R],
+        :ug          => [R],
+        :uelas       => [R],
+        :uepriv      => [R],
+        :p           => [R],
+        :ppriv       => [R],
+        :pgov        => [R],
+        :dpav        => [R],
+        :dpsum       => [R],
+        :pfactor     => [R],
+        # ── Final demand: private ──────────────────────────────────────────────
+        :qpa         => [C, R],
+        :ppa         => [C, R],
+        :qpd         => [C, R],
+        :ppd         => [C, R],
+        :qpm         => [C, R],
+        :ppm         => [C, R],
+        :tpd         => [C, R],
+        :tpm         => [C, R],
+        # ── Final demand: government ───────────────────────────────────────────
+        :qga         => [C, R],
+        :pga         => [C, R],
+        :qgd         => [C, R],
+        :pgd         => [C, R],
+        :qgm         => [C, R],
+        :pgm         => [C, R],
+        # ── Final demand: investment ───────────────────────────────────────────
+        :qia         => [C, R],
+        :pia         => [C, R],
+        :qid         => [C, R],
+        :pid         => [C, R],
+        :qim         => [C, R],
+        :pim         => [C, R],
+        :pinv        => [R],
+        :qinv        => [R],
+        :qsave       => [R],
+        :psave       => [R],
+        # ── Trade ─────────────────────────────────────────────────────────────
+        :qms         => [C, R],
+        :pms         => [C, R],
+        :qxs         => [C, R, R],
+        :pfob        => [C, R, R],
+        :pcif        => [C, R, R],
+        :pmds        => [C, R, R],
+        :ptrans      => [C, R, R],
+        :pr          => [C, R],
+        :qds         => [C, R],
+        :qtmfsd      => [M, C, R, R],
+        :qtm         => [M],
+        :pt          => [M],
+        :qst         => [M, R],
+        # ── Endowments ────────────────────────────────────────────────────────
+        :pe          => [EMS, R],
+        :pes         => [E, A, R],
+        :peb         => [E, A, R],
+        :qes         => [E, A, R],
+        :rental      => [R],
+        # ── Capital dynamics ──────────────────────────────────────────────────
+        :ke          => [R],
+        :kb          => [R],
+        :rorc        => [R],
+        :rore        => [R],
+        :expand      => [EC, R],
+        # ── Swap/closure helpers ──────────────────────────────────────────────
         :qo_slack    => [C, R],
         :to_slack    => [C, A, R],
         :psave_slack => [R],
-        # ── Endogenous variables that can appear in swap endo_out specs ────────
-        :qxs         => [C, R, R],   # bilateral trade volumes (can be quota-fixed)
-        :qo          => [A, R],       # activity output
-        :psave       => [R],          # regional savings price
-        :rore        => [R],          # expected rate of return
-        :ke          => [R],          # expected capital stock growth
-        :pe          => [EMS, R],     # economy-wide mobile/sluggish factor return
-        # Burfisher Table ME 3.4 additional closure swaps (v7 equivalents)
-        :del_indtaxr => [R],          # indirect tax revenue — balanced-budget swap (v6: del_ttaxr)
-        :tpreg       => [R],          # aggregate private consumption tax — balanced-budget swap (v6: tp)
-        :qim         => [C, R],       # composite import volume — import quantity control
-        :pr          => [C, R],       # domestic/world price ratio — variable import levy
-        :ug          => [R],          # government utility/expenditure — gov consumption swap
-        # Exogenous demand shifters that can move to endo in Burfisher swaps
-        :dpgov       => [R],          # government demand shift — gov consumption swap
-        :dpsave      => [R],          # savings demand shift — fixed trade balance swap
     )
 end
 

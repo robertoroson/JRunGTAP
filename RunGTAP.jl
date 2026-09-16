@@ -905,6 +905,316 @@ function export_results(sol::GTAPSolution, filename::String;
 end
 
 """
+    gtap_derived_v7(sol) → Dict{Symbol, Array}
+
+Compute derived reporting variables from a GTAPSolutionV7 — quantities that
+GTAP computes post-solution (GDP, terms of trade, trade value indices, etc.).
+Returns a Dict of Symbol → Array (all percentage-change form, same convention as
+the rest of the solution).
+"""
+function gtap_derived_v7(sol::GTAPSolutionV7)
+    s = sol.s;  d = sol.d;  C = sol.C
+    nC = length(s.COMM);  nA = length(s.ACTS);  nR = length(s.REG)
+    nE = length(s.ENDW);  nM = length(s.MARG)
+    nEMS = length(s.ENDWMS)
+
+    _get(nm) = try get_result_v7(sol, nm) catch; nothing end
+
+    # Helper: value-share weighted sum of percentage changes → one percentage change
+    # result = sum(w_i * x_i) / sum(w_i)   where w_i are benchmark values
+    _wsumR(W, X) = sum(W .* X) / max(sum(W), 1e-30)   # scalar
+    _wsum1(W, X) = [_wsumR(W[:,r], X[:,r]) for r in 1:nR]   # (nR,) from (nC,nR)
+
+    out = Dict{Symbol, Array}()
+
+    # ── Retrieve key endogenous results ──────────────────────────────────────
+    qo    = _get(:qo)     # (nA, nR)  activity output
+    pds   = _get(:pds)    # (nC, nR)  domestic commodity price
+    pms   = _get(:pms)    # (nC, nR)  composite import price
+    qms   = _get(:qms)    # (nC, nR)  aggregate imports
+    pfob  = _get(:pfob)   # (nC, nR, nR)  FOB export price
+    pcif  = _get(:pcif)   # (nC, nR, nR)  CIF import price
+    qxs   = _get(:qxs)    # (nC, nR, nR)  bilateral export volume
+    psave = _get(:psave)  # (nR,)  savings price
+    qsave = _get(:qsave)  # (nR,)  savings demand
+    p     = _get(:p)      # (nR,)  CPI
+    pe    = _get(:pe)     # (nEMS, nR)  endowment price
+    pfe   = _get(:pfe)    # (nE, nA, nR)  factor price paid by firms
+    peb   = _get(:peb)    # (nE, nA, nR)  basic factor price
+    y     = _get(:y)      # (nR,)  regional income
+
+    # ── Export value and volume aggregates ────────────────────────────────────
+    # FOB export values by (c,r): VFOB_r(c,r) = sum_d VFOB(c,r,d)
+    VFOB_r = dropdims(sum(d.VFOB, dims=3), dims=3)   # (nC, nR)
+    # CIF import values by (c,r): VCIF_r(c,r) = sum_s VCIF(c,s,r)
+    VCIF_r = dropdims(sum(d.VCIF, dims=2), dims=2)   # (nC, nR)
+
+    # pxw(c,r): FOB export price index — value-share weighted avg over destinations
+    if pfob !== nothing
+        pxw = zeros(nC, nR)
+        for c in 1:nC, r in 1:nR
+            pxw[c,r] = _wsumR(d.VFOB[c,r,:], pfob[c,r,:])
+        end
+        out[:pxw] = pxw
+
+        # qxw(c,r): FOB export volume = sum_d VFOB(c,r,d)*(pfob+qxs) / VFOB_r - pxw
+        qxw = zeros(nC, nR)
+        for c in 1:nC, r in 1:nR
+            VFOB_r[c,r] < 1e-10 && continue
+            val_pct = sum(d.VFOB[c,r,dd]*(pfob[c,r,dd]+qxs[c,r,dd]) for dd in 1:nR)
+            qxw[c,r] = val_pct/VFOB_r[c,r] - pxw[c,r]
+        end
+        out[:qxw] = qxw
+
+        # vxwfob(c,r): % change in FOB export value = pxw + qxw
+        out[:vxwfob] = pxw .+ qxw
+
+        # pxwreg(r): regional export price index
+        pxwreg = zeros(nR)
+        for r in 1:nR
+            pxwreg[r] = _wsumR(VFOB_r[:,r], pxw[:,r])
+        end
+        out[:pxwreg] = pxwreg
+
+        # qxwreg(r): regional export volume
+        qxwreg = zeros(nR)
+        for r in 1:nR
+            VFOB_tot = sum(VFOB_r[:,r])
+            VFOB_tot < 1e-10 && continue
+            val_pct = sum(VFOB_r[c,r]*(pxw[c,r]+qxw[c,r]) for c in 1:nC)
+            qxwreg[r] = val_pct/VFOB_tot - pxwreg[r]
+        end
+        out[:qxwreg] = qxwreg
+
+        # vxwreg(r): % change in regional FOB export value
+        out[:vxwreg] = pxwreg .+ qxwreg
+
+        # pxwcom(c): world export price index by commodity
+        pxwcom = zeros(nC)
+        for c in 1:nC
+            pxwcom[c] = _wsumR(VFOB_r[c,:], pxw[c,:])
+        end
+        out[:pxwcom] = pxwcom
+
+        # qxwcom(c): world export volume by commodity
+        qxwcom = zeros(nC)
+        for c in 1:nC
+            VFOB_c = sum(VFOB_r[c,:])
+            VFOB_c < 1e-10 && continue
+            val_pct = sum(VFOB_r[c,r]*(pxw[c,r]+qxw[c,r]) for r in 1:nR)
+            qxwcom[c] = val_pct/VFOB_c - pxwcom[c]
+        end
+        out[:qxwcom] = qxwcom
+
+        # vxwcom(c): % change in world FOB export value by commodity
+        out[:vxwcom] = pxwcom .+ qxwcom
+    end
+
+    # pmw(c,r): CIF import price index — value-share weighted avg over sources
+    if pcif !== nothing
+        pmw = zeros(nC, nR)
+        for c in 1:nC, r in 1:nR
+            pmw[c,r] = _wsumR(d.VCIF[c,:,r], pcif[c,:,r])
+        end
+        out[:pmw] = pmw
+
+        # qmw(c,r): CIF import volume = sum_s VCIF*(pcif+qxs) / VCIF_r - pmw
+        qmw = zeros(nC, nR)
+        for c in 1:nC, r in 1:nR
+            VCIF_r[c,r] < 1e-10 && continue
+            val_pct = sum(d.VCIF[c,ss,r]*(pcif[c,ss,r]+qxs[c,ss,r]) for ss in 1:nR)
+            qmw[c,r] = val_pct/VCIF_r[c,r] - pmw[c,r]
+        end
+        out[:qmw] = qmw
+
+        # vmwcif(c,r): % change in CIF import value
+        out[:vmwcif] = pmw .+ qmw
+
+        # pmwreg(r): regional import price index (CIF weights)
+        pmwreg = zeros(nR)
+        for r in 1:nR
+            pmwreg[r] = _wsumR(VCIF_r[:,r], pmw[:,r])
+        end
+        out[:pmwreg] = pmwreg
+
+        # qmwreg(r): regional import volume
+        qmwreg = zeros(nR)
+        for r in 1:nR
+            VCIF_tot = sum(VCIF_r[:,r])
+            VCIF_tot < 1e-10 && continue
+            val_pct = sum(VCIF_r[c,r]*(pmw[c,r]+qmw[c,r]) for c in 1:nC)
+            qmwreg[r] = val_pct/VCIF_tot - pmwreg[r]
+        end
+        out[:qmwreg] = qmwreg
+
+        # vmwreg(r): % change in regional CIF import value
+        out[:vmwreg] = pmwreg .+ qmwreg
+
+        # pmwcom(c): world import price index by commodity
+        pmwcom = zeros(nC)
+        for c in 1:nC
+            pmwcom[c] = _wsumR(VCIF_r[c,:], pmw[c,:])
+        end
+        out[:pmwcom] = pmwcom
+
+        # qmwcom(c): world import volume by commodity
+        qmwcom = zeros(nC)
+        for c in 1:nC
+            VCIF_c = sum(VCIF_r[c,:])
+            VCIF_c < 1e-10 && continue
+            val_pct = sum(VCIF_r[c,r]*(pmw[c,r]+qmw[c,r]) for r in 1:nR)
+            qmwcom[c] = val_pct/VCIF_c - pmwcom[c]
+        end
+        out[:qmwcom] = qmwcom
+
+        # vmwcom(c): % change in world CIF import value by commodity
+        out[:vmwcom] = pmwcom .+ qmwcom
+    end
+
+    # ── World commodity supply price and value ────────────────────────────────
+    # VCB(c,r) = MAKEBCOM: total commodity supply at basic prices
+    VCB = C.MAKEBCOM   # (nC, nR)  sum_a MAKEB(c,a,r)
+    VCB_w = vec(sum(VCB, dims=2))   # (nC,)
+
+    if pds !== nothing && qo !== nothing
+        # pw(c): world commodity price — supply-value-weighted average of pds
+        pw = zeros(nC)
+        for c in 1:nC
+            pw[c] = _wsumR(VCB[c,:], pds[c,:])
+        end
+        out[:pw] = pw
+
+        # qow(c): world supply quantity — value-weighted average of qca change
+        # approximated from qo using make shares
+        qca = _get(:qca)
+        if qca !== nothing
+            qow = zeros(nC)
+            for c in 1:nC
+                VCB_w[c] < 1e-10 && continue
+                val_pct = sum(VCB[c,r]*(pds[c,r]+sum(C.MAKEBCOMSHR[c,a,r]*qca[c,a,r] for a in 1:nA)) for r in 1:nR)
+                qow[c] = val_pct/VCB_w[c] - pw[c]
+            end
+            out[:qow] = qow
+
+            # valuew(c): % change in world value of good c = pw + qow
+            out[:valuew] = pw .+ qow
+        end
+    end
+
+    # ── Trade balance ─────────────────────────────────────────────────────────
+    # del_tbal(r): dollar change in trade balance (exports FOB - imports CIF)
+    # In the linearised model: Δ(X-M) = sum_c VFOB_r(c,r)*(%X_c,r)/100 - sum_c VCIF_r(c,r)*(%M_c,r)/100
+    if haskey(out, :vxwfob) && haskey(out, :vmwcif)
+        vxwfob = out[:vxwfob]
+        vmwcif = out[:vmwcif]
+        del_tbal = zeros(nR)
+        del_tbalc = zeros(nC, nR)
+        for r in 1:nR, c in 1:nC
+            dX = VFOB_r[c,r] * vxwfob[c,r] / 100.0
+            dM = VCIF_r[c,r] * vmwcif[c,r] / 100.0
+            del_tbalc[c,r] = dX - dM
+            del_tbal[r]   += del_tbalc[c,r]
+        end
+        out[:del_tbal]  = del_tbal
+        out[:del_tbalc] = del_tbalc
+
+        # del_tbalry(r): change in trade balance as % of world income
+        world_income = sum(C.INCOME)
+        out[:del_tbalry] = del_tbal ./ max(world_income, 1e-10) .* 100.0
+    end
+
+    # ── Terms of trade ────────────────────────────────────────────────────────
+    # psw(r): export price index = pxwreg(r)
+    # pdw(r): import price index = pmwreg(r)
+    # tot(r) = psw(r) - pdw(r)
+    if haskey(out, :pxwreg) && haskey(out, :pmwreg)
+        out[:psw] = copy(out[:pxwreg])
+        out[:pdw] = copy(out[:pmwreg])
+        out[:tot] = out[:pxwreg] .- out[:pmwreg]
+    end
+
+    # ── GDP (expenditure approach) ────────────────────────────────────────────
+    # vgdp(r): % change in nominal GDP = (C + G + I + X - M) weighted
+    # C = private expenditure (PRIVEXP), G = gov (GOVEXP), I = investment (REGINV),
+    # NX = VFOB_tot - VCIF_tot
+    yp_v  = _get(:yp)
+    yg_v  = _get(:yg)
+    pinv_v = _get(:pinv)
+    qinv_v = _get(:qinv)
+    if yp_v !== nothing && yg_v !== nothing && pinv_v !== nothing && qinv_v !== nothing &&
+       haskey(out, :vxwreg) && haskey(out, :vmwreg)
+        vgdp = zeros(nR)
+        for r in 1:nR
+            VFOB_tot = sum(VFOB_r[:,r])
+            VCIF_tot = sum(VCIF_r[:,r])
+            NX_base  = VFOB_tot - VCIF_tot
+            dC  = C.PRIVEXP[r] * yp_v[r]  / 100.0
+            dG  = C.GOVEXP[r]  * yg_v[r]  / 100.0
+            dI  = C.REGINV[r]  * (pinv_v[r] + qinv_v[r]) / 100.0
+            dX  = VFOB_tot     * (out[:pxwreg][r] + out[:qxwreg][r]) / 100.0
+            dM  = VCIF_tot     * (out[:pmwreg][r] + out[:qmwreg][r]) / 100.0
+            dGDP = dC + dG + dI + dX - dM
+            gdp_base = C.PRIVEXP[r] + C.GOVEXP[r] + C.REGINV[r] + NX_base
+            vgdp[r] = gdp_base > 1e-10 ? dGDP / gdp_base * 100.0 : 0.0
+        end
+        out[:vgdp] = vgdp
+
+        # pgdp(r): GDP deflator — approximated as CPI (p)
+        if p !== nothing
+            out[:pgdp] = copy(p)
+        end
+
+        # qgdp(r): real GDP = vgdp - pgdp
+        if haskey(out, :pgdp)
+            out[:qgdp] = vgdp .- out[:pgdp]
+        end
+    end
+
+    # ── Factor price ratios ───────────────────────────────────────────────────
+    # pfactreal(e,a,r): return to factor e in act. a relative to CPI
+    if peb !== nothing && p !== nothing
+        pfactreal = zeros(nE, nA, nR)
+        for e in 1:nE, a in 1:nA, r in 1:nR
+            pfactreal[e,a,r] = peb[e,a,r] - p[r]
+        end
+        out[:pfactreal] = pfactreal
+    end
+
+    # pebfactreal(e,r): mobile/sluggish endowment return relative to CPI
+    if pe !== nothing && p !== nothing
+        pebfactreal = zeros(nEMS, nR)
+        for e in 1:nEMS, r in 1:nR
+            pebfactreal[e,r] = pe[e,r] - p[r]
+        end
+        out[:pebfactreal] = pebfactreal
+    end
+
+    # ── Value added composition ───────────────────────────────────────────────
+    # compvalad(a,r): composition of value added = qva(a,r) (% ch. in real VA)
+    qva_v = _get(:qva)
+    if qva_v !== nothing
+        out[:compvalad] = copy(qva_v)
+    end
+
+    # ── EV variants ──────────────────────────────────────────────────────────
+    # EV(r): equivalent variation in mn USD (already in export_results, included here too)
+    u_v = _get(:u)
+    if u_v !== nothing
+        out[:EV] = C.INCOME .* u_v ./ 100.0
+
+        # ueprivev(r): utility elasticity of priv. cons. expenditure for EV
+        out[:ueprivev] = copy(C.UELASPRIV)
+
+        # yev(r) = y (income at base prices used for EV)
+        if y !== nothing
+            out[:yev] = copy(y)
+        end
+    end
+
+    out
+end
+
+"""
     export_results(sol::GTAPSolutionV7, filename; variables, skip_zeros, digits)
 
 Write v7 simulation results to CSV with columns: experiment, variable, indices, pct_change.
@@ -969,7 +1279,7 @@ function export_results(sol::GTAPSolutionV7, filename::String;
             rows += 1
         end
 
-        # EV (mn USD)
+        # EV (mn USD) — kept as legacy column for backward compatibility
         u_v = try get_result_v7(sol, :u) catch; nothing end
         if u_v !== nothing
             ev = sol.C.INCOME .* u_v ./ 100
@@ -977,6 +1287,19 @@ function export_results(sol::GTAPSolutionV7, filename::String;
                 v = round(ev[r], digits = digits)
                 skip_zeros && iszero(v) && continue
                 println(io, expname, ",EV_mn_USD,", join(pad([sol.s.REG[r]]), ","), ",", v)
+                rows += 1
+            end
+        end
+
+        # Derived / reporting aggregates (GDP, trade indices, ToT, etc.)
+        derived = gtap_derived_v7(sol)
+        for (nm, arr) in sort(collect(derived); by = x -> string(x[1]))
+            haskey(dom_orig, nm) || continue
+            for idx in CartesianIndices(arr)
+                v = round(arr[idx], digits = digits)
+                skip_zeros && iszero(v) && continue
+                println(io, expname, ",", nm, ",",
+                        join(pad(idx_names(nm, idx)), ","), ",", v)
                 rows += 1
             end
         end

@@ -71,6 +71,7 @@ function core_eq_sizes(s::GTAPSets)
         :MKTCLENDWM    => nEM*nR,   :MKTCLENDWS  => nES*nP*nR,
         :WALRAS_S      => 1,        :WALRAS_D    => 1,
         :WALRAS        => 1,
+        :E_QXW         => nT*nR,    :E_PXW       => nT*nR,
     )
 end
 
@@ -1193,6 +1194,31 @@ function build_A_analytical(d::GTAPData, s::GTAPSets, C)
     let row = eoffs[:WALRAS]
         ae!(row, voffs[:walras_sup],  1.0)
         ae!(row, voffs[:walras_dem], -1.0)
+    end
+
+    # E_QXW (nT,nR): qxw[t,r] - Σ_s VXWDSHR[t,r,s]*qxs[t,r,s] = 0
+    # E_PXW (nT,nR): pxw[t,r] - Σ_s VXWDSHR[t,r,s]*pfob[t,r,s] = 0
+    let VXWD_rsum = [sum(d.VXWD[t,r,:]) for t in 1:nT, r in 1:nR]
+        for t in 1:nT, r in 1:nR
+            row = eoffs[:E_QXW] + (r-1)*nT + t - 1
+            ae!(row, c2(:qxw, t, r, nT), 1.0)
+            vsum = VXWD_rsum[t,r]
+            if vsum > 1e-10
+                for s in 1:nR
+                    ae!(row, c3b(:qxs, t, r, s), -d.VXWD[t,r,s]/vsum)
+                end
+            end
+        end
+        for t in 1:nT, r in 1:nR
+            row = eoffs[:E_PXW] + (r-1)*nT + t - 1
+            ae!(row, c2(:pxw, t, r, nT), 1.0)
+            vsum = VXWD_rsum[t,r]
+            if vsum > 1e-10
+                for s in 1:nR
+                    ae!(row, c3b(:pfob, t, r, s), -d.VXWD[t,r,s]/vsum)
+                end
+            end
+        end
     end
 
     # ── Assemble sparse matrix ────────────────────────────────────────────────

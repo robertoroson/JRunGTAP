@@ -1079,6 +1079,31 @@ function build_A_v7_analytical(d::GTAPDataV7, s::GTAPSetsV7, C)
         ae!(row, :walras_dem, 1, -1.0)
     end
 
+    # E_qxw (nC,nR): qxw[c,r] - Σ_s VFOBSHR[c,r,s]*qxs[c,r,s] = 0
+    # E_pxw (nC,nR): pxw[c,r] - Σ_s VFOBSHR[c,r,s]*pfob[c,r,s] = 0
+    let VFOB_rsum = [sum(d.VFOB[c,r,:]) for c in 1:nC, r in 1:nR]
+        for c in 1:nC, r in 1:nR
+            row = er(:E_qxw, cr(c,r))
+            ae!(row, :qxw, cr(c,r), 1.0)
+            vsum = VFOB_rsum[c,r]
+            if vsum > 1e-10
+                for s in 1:nR
+                    ae!(row, :qxs, crr(c,r,s), -d.VFOB[c,r,s]/vsum)
+                end
+            end
+        end
+        for c in 1:nC, r in 1:nR
+            row = er(:E_pxw, cr(c,r))
+            ae!(row, :pxw, cr(c,r), 1.0)
+            vsum = VFOB_rsum[c,r]
+            if vsum > 1e-10
+                for s in 1:nR
+                    ae!(row, :pfob, crr(c,r,s), -d.VFOB[c,r,s]/vsum)
+                end
+            end
+        end
+    end
+
     # ── Assemble sparse matrix ────────────────────────────────────────────────
     nnz = ptr[]
     sparse(II[1:nnz], JJ[1:nnz], VV[1:nnz], n_row, n_col)

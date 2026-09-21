@@ -148,6 +148,9 @@ function _endo_specs(s::GTAPSets)
         (:y,        (nR,)),    (:p,    (nR,)),     (:u,    (nR,)),
         # ── Module 8 – Equilibrium ────────────────────────────────────────
         (:walras_sup,(1,)),    (:walras_dem,(1,)),
+        # ── Aggregate trade indices (swappable) ───────────────────────────
+        (:qxw,   (nT, nR)),   # FOB-weighted aggregate export volume
+        (:pxw,   (nT, nR)),   # FOB-weighted aggregate export price
     ]
 end
 
@@ -326,6 +329,8 @@ function unpack_endo(x_endo::AbstractVector{T}, exog, s::GTAPSets) where T
         del_indtaxr = blk(:del_indtaxr,(nR,)),
         walras_sup  = sc(:walras_sup),
         walras_dem  = sc(:walras_dem),
+        qxw         = blk(:qxw,        (nT,nR)),
+        pxw         = blk(:pxw,        (nT,nR)),
         # ── Appendix A/B/C variables: zero stubs so gtap_residuals doesn't crash ──
         # Their equations are excluded from CORE_EQ_NAMES; values here don't affect solve.
         pfactreal   = zeros(T, nE, nR),
@@ -434,6 +439,7 @@ const CORE_EQ_NAMES = [
     :MKTCLDOM, :MKTCLTRD_MARG, :MKTCLTRD_NMRG,
     :MKTCLIMP, :MKTCLENDWM, :MKTCLENDWS,
     :WALRAS_S, :WALRAS_D, :WALRAS,
+    :E_QXW, :E_PXW,
 ]
 
 """
@@ -527,6 +533,8 @@ function n_core_equations(s::GTAPSets)
         nR + nR + nR + nR + nR + nR + nR + nR +
         # Module 8
         nT*nR + nM*nR + nNMRG*nR + nT*nR + nEM*nR + nES*nP*nR +
-        1 + 1 + 1
+        1 + 1 + 1 +
+        # E_QXW, E_PXW
+        nT*nR + nT*nR
     )
 end

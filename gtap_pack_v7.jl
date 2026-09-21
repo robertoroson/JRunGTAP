@@ -192,6 +192,9 @@ function _endo_specs_v7(s::GTAPSetsV7)
     (:walras_dem, (1,)),
     (:pcgdswld,   (1,)),
     (:pfactor,(nR,)),
+    # ── Aggregate trade indices (swappable) ───────────────────────────────
+    (:qxw,   (nC, nR)),   # FOB-weighted aggregate export volume
+    (:pxw,   (nC, nR)),   # FOB-weighted aggregate export price
     ]
 end
 
@@ -342,6 +345,8 @@ function core_eq_sizes_v7(s::GTAPSetsV7)
         :E_walras_sup => (1,),
         :E_walras_dem => (1,),
         :E_walras     => (1,),
+        :E_qxw        => (nC, nR),
+        :E_pxw        => (nC, nR),
     )
 end
 
@@ -367,6 +372,7 @@ const CORE_EQ_NAMES_V7 = [
     :E_globalcgds, :E_psave, :E_pcgdswld,
     :E_pfactor, :E_pfactwld,
     :E_walras_sup, :E_walras_dem, :E_walras,
+    :E_qxw, :E_pxw,
 ]
 
 function pack_residuals_core_v7(R::Dict{Symbol,Any}, s::GTAPSetsV7)

@@ -867,6 +867,14 @@ function gtap_residuals(v, d::GTAPData, s::GTAPSets, C; skip_appendix::Bool=fals
     R[:WALRAS_D] = C.GLOBINV*v.walras_dem - sum(d.SAVE[r]*(v.psave[r]+v.qsave[r]) for r in 1:nR)
     R[:WALRAS]   = v.walras_sup - v.walras_dem - v.walraslack
 
+    # E_QXW (nT,nR): qxw = Σ_s VXWDSHR[t,r,s]*qxs[t,r,s]
+    # E_PXW (nT,nR): pxw = Σ_s VXWDSHR[t,r,s]*pfob[t,r,s]
+    VXWD_rsum = [max(sum(d.VXWD[t,r,:]), 1e-30) for t in 1:nT, r in 1:nR]
+    R[:E_QXW] = [v.qxw[t,r] - sum(d.VXWD[t,r,s]/VXWD_rsum[t,r] * v.qxs[t,r,s] for s in 1:nR)
+                 for t in 1:nT, r in 1:nR]
+    R[:E_PXW] = [v.pxw[t,r] - sum(d.VXWD[t,r,s]/VXWD_rsum[t,r] * v.pfob[t,r,s] for s in 1:nR)
+                 for t in 1:nT, r in 1:nR]
+
     skip_appendix && return R
 
     # ════════════════════════════════════════════════════════════════════

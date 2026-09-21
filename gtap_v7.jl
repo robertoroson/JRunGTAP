@@ -965,5 +965,13 @@ function gtap_v7_residuals(v, d::GTAPDataV7, s::GTAPSetsV7, C)
                         sum(d.SAVE[r]*(v.psave[r]+v.qsave[r]) for r in 1:nR)]
     R[:E_walras]     = [v.walras_sup[1] - v.walras_dem[1] - v.walraslack]
 
+    # E_qxw (nC,nR): qxw = Σ_s VFOBSHR[c,r,s]*qxs[c,r,s]
+    # E_pxw (nC,nR): pxw = Σ_s VFOBSHR[c,r,s]*pfob[c,r,s]
+    VFOB_rsum = [max(sum(d.VFOB[c,r,:]), 1e-30) for c in 1:nC, r in 1:nR]
+    R[:E_qxw] = [v.qxw[c,r] - sum(d.VFOB[c,r,s]/VFOB_rsum[c,r] * v.qxs[c,r,s] for s in 1:nR)
+                 for c in 1:nC, r in 1:nR]
+    R[:E_pxw] = [v.pxw[c,r] - sum(d.VFOB[c,r,s]/VFOB_rsum[c,r] * v.pfob[c,r,s] for s in 1:nR)
+                 for c in 1:nC, r in 1:nR]
+
     return R
 end

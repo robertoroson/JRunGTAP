@@ -947,14 +947,28 @@ function gtap_derived_v62(sol::GTAPSolution)
     # VCIF_r[t,r] = total CIF imports of t into r (sum over sources)
     VCIF_r = dropdims(sum(d.VIWS, dims=2), dims=2)  # (nT, nR)
 
+    # pxw/qxw are now endogenous; use solution values when available.
+    pxw_sol = _get(:pxw)
+    qxw_sol = _get(:qxw)
     if pfob !== nothing && qxs !== nothing
         # ── Export price/volume indices ────────────────────────────────────
-        pxw = zeros(nT, nR);  qxw = zeros(nT, nR)
-        for t in 1:nT, r in 1:nR
-            w = d.VXWD[t,r,:]
-            sw = max(sum(w), 1e-30)
-            pxw[t,r] = sum(w .* pfob[t,r,:]) / sw
-            qxw[t,r] = sum(w .* qxs[t,r,:])  / sw
+        pxw = pxw_sol !== nothing ? pxw_sol : begin
+            tmp = zeros(nT, nR)
+            for t in 1:nT, r in 1:nR
+                w  = d.VXWD[t,r,:]
+                sw = max(sum(w), 1e-30)
+                tmp[t,r] = sum(w .* pfob[t,r,:]) / sw
+            end
+            tmp
+        end
+        qxw = qxw_sol !== nothing ? qxw_sol : begin
+            tmp = zeros(nT, nR)
+            for t in 1:nT, r in 1:nR
+                w  = d.VXWD[t,r,:]
+                sw = max(sum(w), 1e-30)
+                tmp[t,r] = sum(w .* qxs[t,r,:]) / sw
+            end
+            tmp
         end
         out[:pxw] = pxw;  out[:qxw] = qxw
         out[:vxwfob] = pxw .+ qxw
@@ -1123,21 +1137,28 @@ function gtap_derived_v7(sol::GTAPSolutionV7)
     # CIF import values by (c,r): VCIF_r(c,r) = sum_s VCIF(c,s,r)
     VCIF_r = dropdims(sum(d.VCIF, dims=2), dims=2)   # (nC, nR)
 
-    # pxw(c,r): FOB export price index — value-share weighted avg over destinations
+    # pxw(c,r) and qxw(c,r): now endogenous variables; use solution values directly.
+    # Fall back to computing from pfob/qxs if solution doesn't carry them (old runs).
+    pxw_sol = _get(:pxw)   # (nC,nR) or nothing
+    qxw_sol = _get(:qxw)   # (nC,nR) or nothing
     if pfob !== nothing
-        pxw = zeros(nC, nR)
-        for c in 1:nC, r in 1:nR
-            pxw[c,r] = _wsumR(d.VFOB[c,r,:], pfob[c,r,:])
+        pxw = pxw_sol !== nothing ? pxw_sol : begin
+            tmp = zeros(nC, nR)
+            for c in 1:nC, r in 1:nR
+                tmp[c,r] = _wsumR(d.VFOB[c,r,:], pfob[c,r,:])
+            end
+            tmp
+        end
+        qxw = qxw_sol !== nothing ? qxw_sol : begin
+            tmp = zeros(nC, nR)
+            for c in 1:nC, r in 1:nR
+                VFOB_r[c,r] < 1e-10 && continue
+                val_pct = sum(d.VFOB[c,r,dd]*(pfob[c,r,dd]+qxs[c,r,dd]) for dd in 1:nR)
+                tmp[c,r] = val_pct/VFOB_r[c,r] - pxw[c,r]
+            end
+            tmp
         end
         out[:pxw] = pxw
-
-        # qxw(c,r): FOB export volume = sum_d VFOB(c,r,d)*(pfob+qxs) / VFOB_r - pxw
-        qxw = zeros(nC, nR)
-        for c in 1:nC, r in 1:nR
-            VFOB_r[c,r] < 1e-10 && continue
-            val_pct = sum(d.VFOB[c,r,dd]*(pfob[c,r,dd]+qxs[c,r,dd]) for dd in 1:nR)
-            qxw[c,r] = val_pct/VFOB_r[c,r] - pxw[c,r]
-        end
         out[:qxw] = qxw
 
         # vxwfob(c,r): % change in FOB export value = pxw + qxw

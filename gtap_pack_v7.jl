@@ -371,8 +371,8 @@ const CORE_EQ_NAMES_V7 = [
     :E_rental, :E_ke, :E_kb, :E_rorc, :E_rore, :E_qinv, :E_expand,
     :E_globalcgds, :E_psave, :E_pcgdswld,
     :E_pfactor, :E_pfactwld,
-    :E_walras_sup, :E_walras_dem, :E_walras,
     :E_qxw, :E_pxw,
+    :E_walras_sup, :E_walras_dem, :E_walras,
 ]
 
 function pack_residuals_core_v7(R::Dict{Symbol,Any}, s::GTAPSetsV7)

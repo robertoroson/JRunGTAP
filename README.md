@@ -186,6 +186,8 @@ The table below lists the most common closure swaps, following **Burfisher (2021
 | **Balanced government budget** | Fixes indirect tax revenue share; endogenises private consumption tax | `del_indtaxr[r] <-> tpreg[r]` | `tp(r) = del_ttaxr(r)` |
 | **Government consumption change** | Fixes government utility; lets government demand shift absorb the change | `ug[r] <-> dpgov[r]` | `dpgov(r) = ug(r)` |
 | **Fixed savings price** | Fixes regional savings price; lets savings demand shift adjust | `psave[r] <-> dpsave[r]` | `dpsave(r) = DTBALR(r)` |
+| **Export volume targeting** | Fixes aggregate FOB export volume index; endogenises export tax | `qxw[c, r] <-> tx[c, r]` | `qxw(i,r) = tx(i,r)` |
+| **Export price targeting** | Fixes aggregate FOB export price index; endogenises export tax | `pxw[c, r] <-> tx[c, r]` | `pxw(i,r) = tx(i,r)` |
 
 Multiple swaps can be combined in a single experiment. For example, the unemployment closure for EU regions alongside standard tariff shocks:
 
@@ -325,9 +327,11 @@ All variables solved as part of the GTAP system.
 
 Computed post-solution by `gtap_derived_v7` / `gtap_derived_v62`, matching the RunGTAP Results tab. The same set of variables is available for both model versions; dimension names follow the model's own sets (COMM/REG for v7, TRAD_COMM/REG for v6.2).
 
+> **Note on `pxw` and `qxw`**: these two variables are **proper endogenous variables** (not just post-solution aggregates). They are defined by equations in the Jacobian system and can be swapped in closure experiments, matching the original RunGTAP behaviour. All other derived aggregates below are still computed post-solution.
+
 | Group | Variables | Dimensions | Description |
 |---|---|---|---|
-| Export price & volume | `pxw`, `qxw`, `vxwfob` | COMM × REG | Commodity export price, volume, FOB value (% ch.) |
+| Export price & volume | `pxw`, `qxw`, `vxwfob` | COMM × REG | Commodity export price, volume, FOB value (% ch.) — `pxw`/`qxw` are endogenous and swappable |
 | Regional export aggregates | `pxwreg`, `qxwreg`, `vxwreg` | REG | Regional export price, volume, value |
 | World export aggregates | `pxwcom`, `qxwcom`, `vxwcom` | COMM | World export price, volume, value by commodity |
 | Import price & volume | `pmw`, `qmw`, `vmwcif` | COMM × REG | Commodity import price, volume, CIF value (% ch.) |

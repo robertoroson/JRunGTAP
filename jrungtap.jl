@@ -239,8 +239,12 @@ end
 
 function _exog_col_v7(name::Symbol, idxs::Vector{Int}, d, s::GTAPSetsV7, C)
     exog_base = make_exog_zero_v7(s)
-    haskey(pairs(exog_base), name) ||
-        error("'$name' is not exogenous in the v7 standard closure")
+    if !haskey(pairs(exog_base), name)
+        hint = name == :ao ? " (hint: 'ao' is endogenous — use 'aoall', 'aosec', or 'aoreg' instead)" :
+               name == :ava ? " (hint: 'ava' is endogenous — use 'avaall', 'avasec', or 'avareg' instead)" :
+               name == :aint ? " (hint: 'aint' is endogenous — use 'aintall', 'aintsec', or 'aintreg' instead)" : ""
+        error("'$name' is not exogenous in the v7 standard closure$hint")
+    end
     exog_dict = Dict(k => copy(float.(v isa Number ? [float(v)] : float.(v)))
                      for (k, v) in pairs(exog_base))
     exog_dict[name][idxs...] = 1.0

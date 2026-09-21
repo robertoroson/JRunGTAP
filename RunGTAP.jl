@@ -893,9 +893,11 @@ function export_results(sol::GTAPSolution, filename::String;
             rows += 1
         end
 
-        # Derived / reporting aggregates
+        # Derived / reporting aggregates (skip variables already written as endogenous)
+        endo_names_set = Set(n for (n, _) in _endo_specs(sol.s))
         derived = gtap_derived_v62(sol)
         for (nm, arr) in sort(collect(derived); by = x -> string(x[1]))
+            nm in endo_names_set && continue
             haskey(dom_orig, nm) || continue
             for idx in CartesianIndices(arr)
                 v = round(arr[idx], digits = digits)
@@ -1487,8 +1489,11 @@ function export_results(sol::GTAPSolutionV7, filename::String;
         end
 
         # Derived / reporting aggregates (GDP, trade indices, ToT, etc.)
+        # Skip variables already written as endogenous above.
+        endo_names_set = Set(n for (n, _) in _endo_specs_v7(sol.s))
         derived = gtap_derived_v7(sol)
         for (nm, arr) in sort(collect(derived); by = x -> string(x[1]))
+            nm in endo_names_set && continue
             haskey(dom_orig, nm) || continue
             for idx in CartesianIndices(arr)
                 v = round(arr[idx], digits = digits)

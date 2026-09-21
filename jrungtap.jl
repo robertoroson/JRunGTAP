@@ -459,8 +459,12 @@ end
 # Compute B[:,k] = ∂F_core/∂exog_k  (one F_core evaluation with unit exog_k)
 function _exog_col(name::Symbol, idxs::Vector{Int}, d, s, C)
     exog_base = make_exog_zero(s)
-    haskey(pairs(exog_base), name) ||
-        error("'$name' is not an exogenous variable in the standard closure")
+    if !haskey(pairs(exog_base), name)
+        hint = name == :ao ? " (hint: 'ao' is endogenous — use 'aoall', 'aosec', or 'aoreg' instead)" :
+               name == :ava ? " (hint: 'ava' is endogenous — use 'avaall', 'avasec', or 'avareg' instead)" :
+               name == :af ? " (hint: 'af' is endogenous — use 'afall', 'afsec', 'afreg', or 'afcom' instead)" : ""
+        error("'$name' is not an exogenous variable in the standard closure$hint")
+    end
     exog_dict = Dict(k => copy(float.(v isa Number ? [float(v)] : float.(v)))
                      for (k, v) in pairs(exog_base))
     exog_dict[name][idxs...] = 1.0

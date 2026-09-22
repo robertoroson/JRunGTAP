@@ -237,13 +237,17 @@ function _endo_col_v7(name::Symbol, idxs::Vector{Int}, s::GTAPSetsV7)
     return off[name] + lin - 1
 end
 
+const _V7_TECH_ALIASES_JR = Dict{Symbol,Symbol}(
+    :ao => :aoall, :ava => :avaall, :af => :afall,
+    :afe => :afeall, :aint => :aintall,
+)
+
 function _exog_col_v7(name::Symbol, idxs::Vector{Int}, d, s::GTAPSetsV7, C)
+    # Apply tech aliases: ao→aoall, ava→avaall, etc. (same as shock resolution)
+    name = get(_V7_TECH_ALIASES_JR, name, name)
     exog_base = make_exog_zero_v7(s)
     if !haskey(pairs(exog_base), name)
-        hint = name == :ao ? " (hint: 'ao' is endogenous — use 'aoall', 'aosec', or 'aoreg' instead)" :
-               name == :ava ? " (hint: 'ava' is endogenous — use 'avaall', 'avasec', or 'avareg' instead)" :
-               name == :aint ? " (hint: 'aint' is endogenous — use 'aintall', 'aintsec', or 'aintreg' instead)" : ""
-        error("'$name' is not exogenous in the v7 standard closure$hint")
+        error("'$name' is not exogenous in the v7 standard closure")
     end
     exog_dict = Dict(k => copy(float.(v isa Number ? [float(v)] : float.(v)))
                      for (k, v) in pairs(exog_base))

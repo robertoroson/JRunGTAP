@@ -194,6 +194,8 @@ The table below lists the most common closure swaps, following **Burfisher (2021
 | **Fixed savings price** | Fixes regional savings price; lets savings demand shift adjust | `psave[r] <-> dpsave[r]` | `dpsave(r) = DTBALR(r)` |
 | **Export volume targeting** | Fixes aggregate FOB export volume index; endogenises export tax | `qxw[c, r] <-> tx[c, r]` | `qxw(i,r) = tx(i,r)` |
 | **Export price targeting** | Fixes aggregate FOB export price index; endogenises export tax | `pxw[c, r] <-> tx[c, r]` | `pxw(i,r) = tx(i,r)` |
+| **Fix output, endogenise tech** | Fixes activity output at zero change; lets output-augmenting tech adjust | `qo[a, r] <-> ao[a, r]` | — |
+| **Fix value-added, endogenise VA tech** | Fixes value-added quantity at zero change; lets VA tech adjust | `qva[a, r] <-> ava[a, r]` | — |
 
 Multiple swaps can be combined in a single experiment. For example, the unemployment closure for EU regions alongside standard tariff shocks:
 

@@ -159,11 +159,16 @@ shock  ava[Computer, Taiwan]         =  2.0   # 2% value-added tech gain
 shock  aint[MacchIndus, Germania]    = -1.0   # 1% intermediate-input efficiency loss
 ```
 
-The same transparent mapping applies to the **exog_in side of closure swaps** — you can write `ao`, `ava`, etc. directly:
+The same transparent mapping applies to the **exog_in side of closure swaps** — you can write `ao`, `ava`, `afe`, `aint` directly:
 
 ```
-swap  qo[Computer, Taiwan] <-> ao[Computer, Taiwan]   # fix output, endogenise output tech
+swap  qo[Computer, Taiwan]    <-> ao[Computer, Taiwan]     # fix output, endogenise output tech
+swap  qva[Computer, Taiwan]   <-> ava[Computer, Taiwan]    # fix VA quantity, endogenise VA tech
+swap  qfe[Capital, Agr, Taiwan] <-> afe[Capital, Agr, Taiwan]  # fix factor demand, endogenise factor tech
+swap  qint[Computer, Taiwan]  <-> aint[Computer, Taiwan]   # fix intermediates, endogenise bundle tech
 ```
+
+> **Note on `af`**: although `af` works as a shock, it is **not supported as a swap instrument**. `af` maps to `afall[c,a,r]`, which is only one additive component of the composite `afa` shifter. Because the solver can fix `qfa` by adjusting the other `afa` components, `afall` remains unconstrained and the swap has no effect.
 
 The set `ACTS` expands to all activities. Named elements, model sets, and user-defined sets all work as in any other shock or swap.
 

@@ -150,7 +150,7 @@ In GTAP v7 the technology variables `afe`, `ao`, `ava`, `af`, and `aint` are **e
 | `af[c, a, r]` | `afcom[c] + afsec[a] + afreg[r] + afall[c,a,r]` | `afall` |
 | `aint[a, r]` | `aintsec[a] + aintreg[r] + aintall[a,r]` | `aintall` |
 
-**You do not need to know this.** JRunGTAP transparently maps the user-friendly name to the correct exogenous field. Write shocks using the short name:
+**You do not need to know this.** JRunGTAP transparently maps the user-friendly name to the correct exogenous field. Write shocks and swaps using the short name:
 
 ```
 shock  afe[Capital, ACTS, Taiwan]    = -5.0   # 5% capital productivity decline in all Taiwan sectors
@@ -159,7 +159,13 @@ shock  ava[Computer, Taiwan]         =  2.0   # 2% value-added tech gain
 shock  aint[MacchIndus, Germania]    = -1.0   # 1% intermediate-input efficiency loss
 ```
 
-The set `ACTS` expands to all activities. Named elements, model sets, and user-defined sets all work as in any other shock.
+The same transparent mapping applies to the **exog_in side of closure swaps** — you can write `ao`, `ava`, etc. directly:
+
+```
+swap  qo[Computer, Taiwan] <-> ao[Computer, Taiwan]   # fix output, endogenise output tech
+```
+
+The set `ACTS` expands to all activities. Named elements, model sets, and user-defined sets all work as in any other shock or swap.
 
 > **Background**: in v6.2 these variables were exogenous and could be shocked directly. In v7 the decomposition allows independent control of sector-neutral, region-neutral, and fully-specific tech change; only the `*all` component (the fully-specific shifter) is exogenous in the standard closure.
 

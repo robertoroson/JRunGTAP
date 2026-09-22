@@ -168,11 +168,11 @@ swap  qfe[Capital, Agr, Taiwan] <-> afe[Capital, Agr, Taiwan]  # fix factor dema
 swap  qint[Computer, Taiwan]  <-> aint[Computer, Taiwan]   # fix intermediates, endogenise bundle tech
 ```
 
-> **Note on `af`**: although `af` works as a shock, it is **not supported as a swap instrument**. `af` maps to `afall[c,a,r]`, which is only one additive component of the composite `afa` shifter. Because the solver can fix `qfa` by adjusting the other `afa` components, `afall` remains unconstrained and the swap has no effect.
+> **Note on `af` (v7 only)**: although `af` works as a shock, it is **not supported as a swap instrument in v7**. `af` maps to `afall[c,a,r]`, which is only one additive component of the composite `afa` shifter. Because the solver can fix `qfa` by adjusting the other `afa` components, `afall` remains unconstrained and the swap has no effect. In **v6.2**, `af` is directly exogenous and works fine as a swap instrument: `swap qf[c,j,r] <-> af[c,j,r]`.
 
 The set `ACTS` expands to all activities. Named elements, model sets, and user-defined sets all work as in any other shock or swap.
 
-> **Background**: in v6.2 these variables were exogenous and could be shocked directly. In v7 the decomposition allows independent control of sector-neutral, region-neutral, and fully-specific tech change; only the `*all` component (the fully-specific shifter) is exogenous in the standard closure.
+> **Background**: in v6.2 these variables were exogenous and could be shocked and swapped directly. In v7 the decomposition allows independent control of sector-neutral, region-neutral, and fully-specific tech change; only the `*all` component (the fully-specific shifter) is exogenous in the standard closure.
 
 ---
 

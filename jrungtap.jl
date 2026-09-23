@@ -37,7 +37,7 @@ include("gtap_analytical_v7.jl") # build_A_v7
 include("gtap_euler_v7.jl")     # update_data_euler_v7
 include("load_gtapAgg3_v7.jl")  # load_from_zip_v7
 
-using SparseArrays, Printf, LinearAlgebra
+using SparseArrays, Printf, LinearAlgebra, Serialization
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -195,14 +195,33 @@ end
 reload_data_v7!() = (_DATA_CACHE_V7[] = nothing; _JACOBIAN_CACHE_V7[] = nothing;
                      _ZIP_CACHE_V7[] = nothing; nothing)
 
-function _get_jacobian_v7(d, s, C; rebuild = false)
-    if _JACOBIAN_CACHE_V7[] === nothing || rebuild
+function _jacobian_cache_path_v7(zippath::String)
+    st = stat(zippath)
+    tag = string(st.size, "_", round(Int, st.mtime))
+    joinpath(dirname(abspath(zippath)), "jacobian_v7_$(tag).jls")
+end
+
+function _get_jacobian_v7(d, s, C; rebuild = false, zippath::String = "")
+    if _JACOBIAN_CACHE_V7[] !== nothing && !rebuild
+        println("  (reusing cached v7 Jacobian)")
+        return _JACOBIAN_CACHE_V7[]
+    end
+    cachefile = !isempty(zippath) ? _jacobian_cache_path_v7(zippath) : ""
+    if !rebuild && !isempty(cachefile) && isfile(cachefile)
+        println("Loading cached GTAPv7 Jacobian from $(basename(cachefile))…")
+        t0 = time()
+        _JACOBIAN_CACHE_V7[] = deserialize(cachefile)
+        println("  loaded in $(round(time()-t0, digits=1))s   nnz=$(nnz(_JACOBIAN_CACHE_V7[]))")
+    else
         println("Building GTAPv7 Jacobian…")
         t0 = time()
         _JACOBIAN_CACHE_V7[] = build_A_v7(d, s, C)
         println("  done in $(round(time()-t0, digits=1))s   nnz=$(nnz(_JACOBIAN_CACHE_V7[]))")
-    else
-        println("  (reusing cached v7 Jacobian)")
+        if !isempty(cachefile)
+            print("  saving to $(basename(cachefile))… ")
+            serialize(cachefile, _JACOBIAN_CACHE_V7[])
+            println("done.")
+        end
     end
     _JACOBIAN_CACHE_V7[]
 end
@@ -290,7 +309,7 @@ Solve the linearised GTAPv7 model for the experiment defined in `exp`.
 """
 function run_gtap_v7(exp::GTAPExperiment, zippath::String; rebuild_jacobian = false)
     s, d, C = load_data_v7(zippath)
-    A       = _get_jacobian_v7(d, s, C; rebuild = rebuild_jacobian)
+    A       = _get_jacobian_v7(d, s, C; rebuild = rebuild_jacobian, zippath = zippath)
 
     println("\n── v7: $(exp.name) " * "─"^max(0, 57 - length(exp.name)))
     meth_str = exp.method === :johansen ? "Johansen" :

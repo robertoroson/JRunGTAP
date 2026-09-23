@@ -1,6 +1,6 @@
 include("jrungtap.jl")
 
-zippath = "gtapv7.zip"   # adjust if needed
+zippath = raw"C:\runGTAP375\under2\gtapv7.zip"
 cfgpath = raw"C:\Users\roson\Downloads\TwC1.cfg"
 
 method, steps, raw_shocks, raw_swaps, user_sets, model = parse_config(cfgpath)

@@ -273,7 +273,8 @@ function _replace_col_v7(A, j, col)
     _replace_col(A, j, col)   # same implementation as v6.2 version
 end
 
-function apply_swaps_v7(A, b, swaps::Vector{Swap}, d, s::GTAPSetsV7, C)
+function apply_swaps_v7(A, b, swaps::Vector{Swap}, d, s::GTAPSetsV7, C;
+                        fix_scale::Float64=1.0, verbose::Bool=true)
     isempty(swaps) && return A, b, Dict{Int,String}(), Dict{Int,Tuple{String,Float64}}()
     A_sw = A;  b_sw = copy(b)
     swap_in  = Dict{Int,String}()
@@ -283,8 +284,8 @@ function apply_swaps_v7(A, b, swaps::Vector{Swap}, d, s::GTAPSetsV7, C)
         nm_in,  idxs_in  = _parse_varspec(sw.exog_in)
         j   = _endo_col_v7(nm_out, idxs_out, s)
         B_k = _exog_col_v7(nm_in,  idxs_in,  d, s, C)
-        println("  Swap v7: $(sw.endo_out) → exo (fix=$(sw.fix_at)) | $(sw.exog_in) → endo  [col $j]")
-        sw.fix_at != 0.0 && (b_sw .-= A_sw[:, j] .* sw.fix_at)
+        verbose && println("  Swap v7: $(sw.endo_out) → exo (fix=$(sw.fix_at)) | $(sw.exog_in) → endo  [col $j]")
+        sw.fix_at != 0.0 && (b_sw .-= A_sw[:, j] .* (sw.fix_at * fix_scale))
         A_sw = _replace_col(A_sw, j, B_k)
         swap_in[j]  = sw.exog_in
         swap_out[j] = (sw.endo_out, sw.fix_at)
@@ -370,7 +371,8 @@ function _euler_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
         b_cur = -F_core_v7(zeros(n), exog, d_cur, s, C_cur)
         # Drop the last row (E_walras) — it's Walras' law redundancy in the square system
         if size(A_cur, 1) > n; A_cur = A_cur[1:n, :]; b_cur = b_cur[1:n]; end
-        A_eff, b_eff, _, _ = apply_swaps_v7(A_cur, b_cur, swaps, d_cur, s, C_cur)
+        A_eff, b_eff, _, _ = apply_swaps_v7(A_cur, b_cur, swaps, d_cur, s, C_cur;
+                                             fix_scale=1.0/steps, verbose=false)
         dx = lu(A_eff) \ b_eff
 
         x_level .*= (1 .+ dx ./ 100)
@@ -408,7 +410,8 @@ function _gragg_pass_v7(shocks, swaps, np::Int, d0::GTAPDataV7, s::GTAPSetsV7, C
         A_cur = build_A_v7_analytical(d_cur, s, C_cur)
         b1    = -F_core_v7(zeros(n), exog_sub, d_cur, s, C_cur)
         if size(A_cur,1) > n; A_cur = A_cur[1:n,:]; b1 = b1[1:n]; end
-        A1, b1e, _, _ = apply_swaps_v7(A_cur, b1, swaps, d_cur, s, C_cur)
+        A1, b1e, _, _ = apply_swaps_v7(A_cur, b1, swaps, d_cur, s, C_cur;
+                                        fix_scale=1.0/np, verbose=false)
         k1 = lu(A1) \ b1e
 
         dx_half = unpack_endo_v7(k1 ./ 2, make_exog_zero_v7(s), s)
@@ -418,7 +421,8 @@ function _gragg_pass_v7(shocks, swaps, np::Int, d0::GTAPDataV7, s::GTAPSetsV7, C
         A_mid = build_A_v7_analytical(d_mid, s, C_mid)
         b2    = -F_core_v7(zeros(n), exog_sub, d_mid, s, C_mid)
         if size(A_mid,1) > n; A_mid = A_mid[1:n,:]; b2 = b2[1:n]; end
-        A2, b2e, _, _ = apply_swaps_v7(A_mid, b2, swaps, d_mid, s, C_mid)
+        A2, b2e, _, _ = apply_swaps_v7(A_mid, b2, swaps, d_mid, s, C_mid;
+                                        fix_scale=1.0/np, verbose=false)
         k2 = lu(A2) \ b2e
 
         x_level .*= (1 .+ k2 ./ 100)
@@ -570,7 +574,8 @@ For each swap (endo_out → exo at v, exo_in → endo):
 
 Returns modified system, swap_in (col → exog_in spec), swap_out (col → (endo_out spec, fix_at)).
 """
-function apply_swaps(A, b, swaps::Vector{Swap}, d, s, C)
+function apply_swaps(A, b, swaps::Vector{Swap}, d, s, C;
+                     fix_scale::Float64=1.0, verbose::Bool=true)
     isempty(swaps) && return A, b, Dict{Int,String}(), Dict{Int,Tuple{String,Float64}}()
 
     A_sw     = A
@@ -585,11 +590,11 @@ function apply_swaps(A, b, swaps::Vector{Swap}, d, s, C)
         j   = _endo_col(nm_out, idxs_out, s)
         B_k = _exog_col(nm_in,  idxs_in,  d, s, C)
 
-        println("  Swap: $(sw.endo_out) → exo (fix=$(sw.fix_at)) | " *
-                "$(sw.exog_in) → endo  [col $j]")
+        verbose && println("  Swap: $(sw.endo_out) → exo (fix=$(sw.fix_at)) | " *
+                           "$(sw.exog_in) → endo  [col $j]")
 
         if sw.fix_at != 0.0
-            b_sw .-= A_sw[:, j] .* sw.fix_at
+            b_sw .-= A_sw[:, j] .* (sw.fix_at * fix_scale)
         end
 
         A_sw = _replace_col(A_sw, j, B_k)
@@ -692,8 +697,9 @@ function _euler_solve(shocks, swaps, steps, d0::GTAPData, s::GTAPSets, C0)
         A_cur = build_A_analytical(d_cur, s, C_cur)
         b_cur = -F_core(zeros(n), exog, d_cur, s, C_cur)
 
-        # Apply closure swaps
-        A_eff, b_eff, _, _ = apply_swaps(A_cur, b_cur, swaps, d_cur, s, C_cur)
+        # Apply closure swaps (fix_at scaled to 1/steps per sub-step)
+        A_eff, b_eff, _, _ = apply_swaps(A_cur, b_cur, swaps, d_cur, s, C_cur;
+                                          fix_scale=1.0/steps, verbose=false)
 
         # Sub-step solution
         dx = lu(A_eff) \ b_eff
@@ -741,7 +747,8 @@ function _gragg_pass(shocks, swaps, np::Int, d0::GTAPData, s::GTAPSets, C0;
 
         A_cur = build_A_analytical(d_cur, s, C_cur)
         b1    = -F_core(zeros(n), exog_sub, d_cur, s, C_cur)
-        A1, b1e, _, _ = apply_swaps(A_cur, b1, swaps, d_cur, s, C_cur)
+        A1, b1e, _, _ = apply_swaps(A_cur, b1, swaps, d_cur, s, C_cur;
+                                     fix_scale=1.0/np, verbose=false)
         k1 = lu(A1) \ b1e
 
         d_mid = update_data_euler(d_cur, k1 ./ 2, s)
@@ -749,7 +756,8 @@ function _gragg_pass(shocks, swaps, np::Int, d0::GTAPData, s::GTAPSets, C0;
 
         A_mid = build_A_analytical(d_mid, s, C_mid)
         b2    = -F_core(zeros(n), exog_sub, d_mid, s, C_mid)
-        A2, b2e, _, _ = apply_swaps(A_mid, b2, swaps, d_mid, s, C_mid)
+        A2, b2e, _, _ = apply_swaps(A_mid, b2, swaps, d_mid, s, C_mid;
+                                     fix_scale=1.0/np, verbose=false)
         k2 = lu(A2) \ b2e
 
         x_level .*= (1 .+ k2 ./ 100)

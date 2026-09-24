@@ -195,34 +195,19 @@ end
 reload_data_v7!() = (_DATA_CACHE_V7[] = nothing; _JACOBIAN_CACHE_V7[] = nothing;
                      _ZIP_CACHE_V7[] = nothing; nothing)
 
-function _jacobian_cache_path_v7(zippath::String)
-    st = stat(zippath)
-    tag = string(st.size, "_", round(Int, st.mtime))
-    joinpath(dirname(abspath(zippath)), "jacobian_v7_$(tag).jls")
-end
-
 function _get_jacobian_v7(d, s, C; rebuild = false, zippath::String = "")
     if _JACOBIAN_CACHE_V7[] !== nothing && !rebuild
         println("  (reusing cached v7 Jacobian)")
         return _JACOBIAN_CACHE_V7[]
     end
-    cachefile = !isempty(zippath) ? _jacobian_cache_path_v7(zippath) : ""
-    if !rebuild && !isempty(cachefile) && isfile(cachefile)
-        println("Loading cached GTAPv7 Jacobian from $(basename(cachefile))…")
-        t0 = time()
-        _JACOBIAN_CACHE_V7[] = deserialize(cachefile)
-        println("  loaded in $(round(time()-t0, digits=1))s   nnz=$(nnz(_JACOBIAN_CACHE_V7[]))")
-    else
-        println("Building GTAPv7 Jacobian…")
-        t0 = time()
-        _JACOBIAN_CACHE_V7[] = build_A_v7(d, s, C)
-        println("  done in $(round(time()-t0, digits=1))s   nnz=$(nnz(_JACOBIAN_CACHE_V7[]))")
-        if !isempty(cachefile)
-            print("  saving to $(basename(cachefile))… ")
-            serialize(cachefile, _JACOBIAN_CACHE_V7[])
-            println("done.")
-        end
+    # Activate build_A_v7's own disk cache so the 50-min build is saved
+    if !isempty(zippath)
+        set_jac_cache_path_v7(zippath)
     end
+    println("Building GTAPv7 Jacobian…")
+    t0 = time()
+    _JACOBIAN_CACHE_V7[] = build_A_v7(d, s, C)
+    println("  done in $(round(time()-t0, digits=1))s   nnz=$(nnz(_JACOBIAN_CACHE_V7[]))")
     _JACOBIAN_CACHE_V7[]
 end
 
@@ -371,7 +356,7 @@ function _euler_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
         b_cur = -F_core_v7(zeros(n), exog, d_cur, s, C_cur)
         A_eff, b_eff, _, _ = apply_swaps_v7(A_cur, b_cur, swaps, d_cur, s, C_cur;
                                              fix_scale=1.0/steps, verbose=false)
-        dx = lu(A_eff) \ b_eff
+        dx = _johansen_solve(A_eff, b_eff)
 
         x_level .*= (1 .+ dx ./ 100)
         d_cur = update_data_euler_v7(d_cur, unpack_endo_v7(dx, make_exog_zero_v7(s), s), s)
@@ -406,7 +391,7 @@ function _gragg_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
         b1    = -F_core_v7(zeros(n), exog_sub, d_cur, s, C_cur)
         A1, b1e, _, _ = apply_swaps_v7(A_cur, b1, swaps, d_cur, s, C_cur;
                                          fix_scale=1.0/np, verbose=false)
-        k1 = lu(A1) \ b1e
+        k1 = _johansen_solve(A1, b1e)
 
         dx_half = unpack_endo_v7(k1 ./ 2, make_exog_zero_v7(s), s)
         d_mid   = update_data_euler_v7(d_cur, dx_half, s)
@@ -416,7 +401,7 @@ function _gragg_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
         b2    = -F_core_v7(zeros(n), exog_sub, d_mid, s, C_mid)
         A2, b2e, _, _ = apply_swaps_v7(A_mid, b2, swaps, d_mid, s, C_mid;
                                          fix_scale=1.0/np, verbose=false)
-        k2 = lu(A2) \ b2e
+        k2 = _johansen_solve(A2, b2e)
 
         x_level .*= (1 .+ k2 ./ 100)
         dx_full = unpack_endo_v7(k1, make_exog_zero_v7(s), s)
@@ -626,6 +611,16 @@ end
 # ── Solver back-ends ──────────────────────────────────────────────────────────
 
 function _johansen_solve(A, b)
+    m, n = size(A)
+    if m != n
+        # GTAP v7 has one more equation than endogenous variable (Walras' law
+        # adds a redundant E_walras row at the end of pack_residuals_core_v7).
+        # Drop trailing redundant rows so UMFPack gets a square system.
+        m > n || error("Jacobian under-determined: $m rows × $n cols")
+        println("  (trimming Jacobian: $m rows → $n for square solve)")
+        A = A[1:n, :]
+        b = b[1:n]
+    end
     lu(A) \ b
 end
 

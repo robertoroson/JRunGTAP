@@ -211,34 +211,15 @@ reload_data_v7!() = (_DATA_CACHE_V7[] = nothing; _JACOBIAN_CACHE_V7[] = nothing;
                      _ZIP_CACHE_V7[] = nothing;
                      _JAC_PATTERN_V7[] = nothing; _JAC_GROUPS_V7[] = nothing; nothing)
 
-function _jacobian_cache_path_v7(zippath::String)
-    st = stat(zippath)
-    tag = string(st.size, "_", round(Int, st.mtime))
-    joinpath(dirname(abspath(zippath)), "jacobian_v7_$(tag).jls")
-end
-
 function _get_jacobian_v7(d, s, C; rebuild = false, zippath::String = "")
     if _JACOBIAN_CACHE_V7[] !== nothing && !rebuild
         println("  (reusing cached v7 Jacobian)")
         return _JACOBIAN_CACHE_V7[]
     end
-    cachefile = !isempty(zippath) ? _jacobian_cache_path_v7(zippath) : ""
-    if !rebuild && !isempty(cachefile) && isfile(cachefile)
-        println("Loading cached GTAPv7 Jacobian from $(basename(cachefile))…")
-        t0 = time()
-        _JACOBIAN_CACHE_V7[] = deserialize(cachefile)
-        println("  loaded in $(round(time()-t0, digits=1))s   nnz=$(nnz(_JACOBIAN_CACHE_V7[]))")
-    else
-        println("Building GTAPv7 Jacobian…")
-        t0 = time()
-        _JACOBIAN_CACHE_V7[] = build_A_v7_analytical(d, s, C)
-        println("  done in $(round(time()-t0, digits=1))s   nnz=$(nnz(_JACOBIAN_CACHE_V7[]))")
-        if !isempty(cachefile)
-            print("  saving to $(basename(cachefile))… ")
-            serialize(cachefile, _JACOBIAN_CACHE_V7[])
-            println("done.")
-        end
-    end
+    println("Building GTAPv7 Jacobian…")
+    t0 = time()
+    _JACOBIAN_CACHE_V7[] = build_A_v7_analytical(d, s, C)
+    println("  done in $(round(time()-t0, digits=1))s   nnz=$(nnz(_JACOBIAN_CACHE_V7[]))")
     _JACOBIAN_CACHE_V7[]
 end
 

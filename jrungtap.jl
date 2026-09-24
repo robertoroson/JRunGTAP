@@ -390,7 +390,7 @@ function _gragg_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
         A_cur = build_A_v7(d_cur, s, C_cur)
         b1    = -F_core_v7(zeros(n), exog_sub, d_cur, s, C_cur)
         A1, b1e, _, _ = apply_swaps_v7(A_cur, b1, swaps, d_cur, s, C_cur;
-                                         fix_scale=1.0/np, verbose=false)
+                                         fix_scale=1.0/steps, verbose=false)
         k1 = _johansen_solve(A1, b1e)
 
         dx_half = unpack_endo_v7(k1 ./ 2, make_exog_zero_v7(s), s)
@@ -400,7 +400,7 @@ function _gragg_solve_v7(shocks, swaps, steps, d0::GTAPDataV7, s::GTAPSetsV7, C0
         A_mid = build_A_v7(d_mid, s, C_mid)
         b2    = -F_core_v7(zeros(n), exog_sub, d_mid, s, C_mid)
         A2, b2e, _, _ = apply_swaps_v7(A_mid, b2, swaps, d_mid, s, C_mid;
-                                         fix_scale=1.0/np, verbose=false)
+                                         fix_scale=1.0/steps, verbose=false)
         k2 = _johansen_solve(A2, b2e)
 
         x_level .*= (1 .+ k2 ./ 100)

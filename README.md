@@ -292,6 +292,22 @@ The default Jacobian builder (`gtap_jacobian_analytical_v7.jl`) constructs the G
 
 ---
 
+## Validation against RunGTAP
+
+JRunGTAP results have been compared against **RunGTAP 3.75** (GEMPACK) on a standard swap experiment:
+
+**Experiment TwC1** — `qxw[Computer, Taiwan] <-> ao[Computer, Taiwan]`, `fix_at = -5.0`  
+Dataset: `GTAP12_15x15x17.zip` (15 sectors × 17 regions, matching RunGTAP's aggregation)
+
+| Variable | JRunGTAP Gragg/6 | RunGTAP (GEMPACK) | Difference |
+|---|---|---|---|
+| `qxw[Computer, Taiwan]` | −5.00 | −5.00 | 0.00 (swap target, exact) |
+| `qo[Computer, Taiwan]` | −4.74 | −4.84 | ~2% relative |
+
+The ~2% gap in `qo` is the expected **linearisation error** from 6-step Gragg integration. Cross-sector spillovers (all other Taiwan sectors positive, rest-of-world small negative) are qualitatively and quantitatively consistent with RunGTAP.
+
+---
+
 ## Welfare output
 
 The on-screen summary reports, for each region:

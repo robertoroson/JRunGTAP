@@ -32,8 +32,10 @@ include("gtap_euler.jl")        # update_data_euler (multi-step Euler)
 
 # ── GTAPv7 infrastructure ─────────────────────────────────────────────────────
 include("gtap_v7.jl")           # GTAPSetsV7, GTAPDataV7, gtap_v7_residuals
+include("gtap_names_v7.jl")     # var_domains / _model_sets / resolve_config for GTAPSetsV7
 include("gtap_pack_v7.jl")      # F_core_v7, make_exog_zero_v7, _endo_specs_v7
-include("gtap_analytical_v7.jl") # build_A_v7
+include("gtap_analytical_v7.jl")          # build_A_v7 (colored FD, pattern cache)
+include("gtap_jacobian_analytical_v7.jl") # build_A_v7_analytical (direct, <1s)
 include("gtap_euler_v7.jl")     # update_data_euler_v7
 include("load_gtapAgg3_v7.jl")  # load_from_zip_v7
 

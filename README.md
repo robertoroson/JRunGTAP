@@ -37,7 +37,7 @@ Version 7 introduces several key model extensions relative to v6.2:
 
 | File | Description |
 |---|---|
-| `jrungtap.jl` | Main entry point — load this file in Julia |
+| `jrungtap.jl` / `RunGTAP.jl` | Main entry point — both are equivalent; load either one in Julia |
 | **v6.2 model** | |
 | `gtap_v62.jl` | Sets, data structs, derived coefficients, equation residuals (v6.2) |
 | `gtap_pack.jl` | Pack/unpack the endogenous variable vector; `F_core` residual function |
@@ -105,7 +105,7 @@ GTAP data are proprietary and distributed separately by the [GTAP Center](https:
 ## Quick start
 
 ```julia
-include("jrungtap.jl")
+include("RunGTAP.jl")   # or equivalently: include("jrungtap.jl")
 run_gtap_interactive()
 ```
 

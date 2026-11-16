@@ -20,7 +20,7 @@ The models are described in:
   - **Gragg + Richardson extrapolation** — automatic when `steps` is a multiple of 3 and ≥ 6; runs three Gragg passes at [n, 2n, 3n] steps and extrapolates h²→0 (polynomial order 2, substantially higher effective accuracy).
 - Flexible **closure** via variable swaps in the experiment config file — supports all standard closures from Burfisher (2021) Table ME 3.4.
 - Exports results to **CSV** — all endogenous variables plus derived reporting aggregates (GDP, trade value indices, terms of trade, factor price ratios, equivalent variation, etc.) for both v6.2 and v7, matching the RunGTAP Results tab output.
-- On-screen summary with welfare table (utility, income, CPI, equivalent variation in million USD) and validation checks (Walras' law, income–expenditure balance, factor market clearing).
+- On-screen summary with a **regional welfare table** (utility, income, CPI, equivalent variation in million USD), swapped-in variable values, and validation checks (Walras' law, income–expenditure balance, factor market clearing). Multi-dimensional variables (quantities, prices, trade flows) are not printed — use `get_result` / `get_result_v7` or the CSV export for those.
 
 ### GTAP v7 structural additions
 Version 7 introduces several key model extensions relative to v6.2:
@@ -308,16 +308,19 @@ The ~2% gap in `qo` is the expected **linearisation error** from 6-step Gragg in
 
 ---
 
-## Welfare output
+## On-screen summary
 
-The on-screen summary reports, for each region:
+After each run, `show_results` prints:
 
-- `welfare(u)` — percentage change in utility.
-- `income(y)` — percentage change in regional household income.
-- `CPI(p)` — percentage change in the consumer price index.
-- `EV (mn USD)` — equivalent variation in million USD at benchmark prices, computed as `EV[r] = INCOME[r] × u[r] / 100` (exact for Johansen; a good approximation for Euler/Gragg).
+1. **Regional welfare table** — one row per region, plus a WORLD total:
+   - `welfare(u)` — percentage change in utility.
+   - `income(y)` — percentage change in regional household income.
+   - `CPI(p)` — percentage change in the consumer price index.
+   - `EV (mn USD)` — equivalent variation in million USD, computed as `EV[r] = INCOME[r] × u[r] / 100` (exact for Johansen; a good approximation for Euler/Gragg).
+2. **Swapped-in variables** — the endogenous value of any variable moved to endogenous by a closure swap.
+3. **Validation checks** — Walras' law, income–expenditure balance, factor market clearing.
 
-A **WORLD** row shows the sum of regional EVs (global welfare effect).
+Multi-dimensional results (quantities, prices, trade flows) are not printed on screen — use `get_result` / `get_result_v7` or the CSV export to inspect them.
 
 ---
 

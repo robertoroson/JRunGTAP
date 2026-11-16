@@ -869,8 +869,6 @@ end
 
 Print a general-purpose summary of simulation results:
   - Regional welfare (u) and income (y): one row per region
-  - Sectoral output (qva): min/max/‖·‖∞ across all sectors and regions
-  - Trade volumes (qxs): min/max/‖·‖∞ across all bilateral flows
   - Swapped-in variables (if any closure swaps were applied)
 """
 function show_results(sol::GTAPSolution)
@@ -898,26 +896,6 @@ function show_results(sol::GTAPSolution)
         end
         @printf("  %-20s %10s   %10s   %10s   %12.2f\n",
                 "WORLD", "", "", "", sum(ev_arr))
-    end
-
-    # ── Aggregate summaries for multi-dimensional variables ─────────────────
-    println()
-    println("  variable   description                  min          max          ‖·‖∞")
-    println("  " * "─"^72)
-    agg_vars = [
-        (:qva, "sectoral value added (%)"),
-        (:qxs, "bilateral trade volumes (%)"),
-        (:pms, "import prices (%)"),
-        (:psave, "savings price (%)"),
-    ]
-    for (nm, desc) in agg_vars
-        try
-            v    = get_variable(sol.x_endo, nm, s)
-            flat = vec(v)
-            @printf("  %-10s %-28s %12.4f  %12.4f  %12.4f\n",
-                    nm, desc, minimum(flat), maximum(flat), maximum(abs, flat))
-        catch
-        end
     end
 
     # ── Swapped-in variables ────────────────────────────────────────────────
